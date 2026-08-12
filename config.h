@@ -27,3 +27,5 @@
 
 #define LINE_END "\r\n"
 #define LINE_END_LEN 2
+
+#define AP_PASSWORD "123456789"

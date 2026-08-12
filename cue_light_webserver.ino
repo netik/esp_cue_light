@@ -9,8 +9,6 @@
 #include "UdpCue.h"
 #include "config.h"
 
-#define AP_PASSWORD "123456789"
-
 #define FILESYSTEM LittleFS
 AsyncFsWebServer server(FILESYSTEM, 80);
 
