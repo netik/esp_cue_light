@@ -1,0 +1,14 @@
+board_manager:
+  additional_urls: []
+daemon:
+  port: "50051"
+directories:
+  data: /Users/jna/Library/Arduino15
+  downloads: /Users/jna/Library/Arduino15/staging
+  user: /Users/jna/Documents/Arduino
+logging:
+  file: ""
+  format: text
+  level: info
+telemetry:
+  enabled: false

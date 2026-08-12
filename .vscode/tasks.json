@@ -1,0 +1,123 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "serialPort",
+      "type": "promptString",
+      "description": "Serial port (e.g. /dev/cu.usbserial-0001)",
+      "default": "/dev/cu.usbserial-0001"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "Arduino: List Boards",
+      "type": "shell",
+      "command": "/Users/jna/bin/arduino-cli",
+      "args": ["board", "list"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Compile (ESP8266)",
+      "type": "shell",
+      "command": "/Users/jna/bin/arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn",
+        "${config:cueLight.fqbn}",
+        "${workspaceFolder}"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": {
+        "owner": "arduino",
+        "fileLocation": ["absolute"],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    },
+    {
+      "label": "Arduino: Upload (ESP8266)",
+      "type": "shell",
+      "command": "/Users/jna/bin/arduino-cli",
+      "args": [
+        "upload",
+        "--fqbn",
+        "${config:cueLight.fqbn}",
+        "--port",
+        "${config:cueLight.port}",
+        "${workspaceFolder}"
+      ],
+      "dependsOn": ["Arduino: Compile (ESP8266)"],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Compile + Upload (ESP8266)",
+      "dependsOn": ["Arduino: Upload (ESP8266)"],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Upload LittleFS",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/upload-littlefs.sh",
+      "args": ["${config:cueLight.port}"],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Serial Monitor",
+      "type": "shell",
+      "command": "/Users/jna/bin/arduino-cli",
+      "args": [
+        "monitor",
+        "--port",
+        "${config:cueLight.port}",
+        "--config",
+        "baudrate=${config:cueLight.baud}"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Full Deploy (sketch + filesystem)",
+      "dependsOn": [
+        "Arduino: Upload (ESP8266)",
+        "Arduino: Upload LittleFS"
+      ],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

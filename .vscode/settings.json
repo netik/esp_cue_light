@@ -1,0 +1,20 @@
+{
+  "arduino.path": "/Users/jna/bin/arduino-cli",
+  "arduino.commandPath": "/Users/jna/bin/arduino-cli",
+  "arduino.additionalUrls": [],
+  "arduino.defaultBaudRate": 115200,
+  "arduino.logLevel": "info",
+  "arduino.enableUSBDetection": true,
+  "arduino.disableTestingOpen": false,
+  "arduino.useArduinoCli": true,
+  "arduino.allowPDEFiletype": false,
+  "arduino.skipHeaderProvider": false,
+  "arduino.skipLibraryProvider": false,
+  "C_Cpp.default.configurationProvider": "vscode-arduino.cpptools",
+  "files.associations": {
+    "*.ino": "cpp"
+  },
+  "cueLight.fqbn": "esp8266:esp8266:nodemcuv2:eesz=4M2M,ip=lm2n",
+  "cueLight.port": "/dev/cu.usbserial-0001",
+  "cueLight.baud": "115200"
+}
