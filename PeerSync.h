@@ -17,40 +17,57 @@ public:
                         MDNSResponder::AnswerType answerType, bool added);
 
 private:
+  enum class ApplySource : uint8_t { Push, Poll };
+
   struct PeerEntry {
     IPAddress ip;
     unsigned long lastSeenMs;
     bool valid;
   };
 
+  struct MdnsEvent {
+    IPAddress ip;
+    bool added;
+  };
+
   uint16_t _systemId = DEFAULT_SYSTEM_ID;
   uint16_t _cueGroup = DEFAULT_CUE_GROUP;
   bool _ready = false;
   bool _pushPending = false;
+  bool _pushDeferred = false;
   char _pushJson[128];
   uint8_t _pushScanIndex = 0;
   uint8_t _pushRemaining = 0;
   unsigned long _lastDiscoveryMs = 0;
   unsigned long _lastPollMs = 0;
+  unsigned long _suppressPollUntilMs = 0;
   uint8_t _pollIndex = 0;
+  volatile uint8_t _mdnsEventCount = 0;
 
   MDNSResponder::hMDNSService _mdnsService = 0;
   MDNSResponder::hMDNSServiceQuery _mdnsQuery = 0;
 
   PeerEntry _peers[PEER_SYNC_MAX_PEERS];
+  MdnsEvent _mdnsEvents[PEER_SYNC_MDNS_EVENT_QUEUE];
 
   void updateServiceTxt();
+  void schedulePush();
+  void markLocalChange();
+  void queueMdnsEvent(IPAddress ip, bool added);
+  void processMdnsEvents();
   void refreshPeersFromMdns();
   void expireStalePeers();
   bool processPendingPush();
   bool pollPeer(const PeerEntry& peer);
   bool pushToPeer(const PeerEntry& peer, const char* json);
-  bool parseAndApply(const char* json);
+  bool parseAndApply(const char* json, ApplySource source);
   bool peerMatchesFilter(MDNSResponder::MDNSServiceInfo& serviceInfo);
   void touchPeer(IPAddress ip);
+  void removePeer(IPAddress ip);
   PeerEntry* findPeer(IPAddress ip);
   PeerEntry* allocPeer(IPAddress ip);
   uint8_t countPeers() const;
+  static void formatIp(char* buffer, size_t size, const IPAddress& ip);
   static void formatPeerUrl(char* buffer, size_t size, const IPAddress& ip);
 };
 

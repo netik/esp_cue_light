@@ -110,28 +110,47 @@ void handleCueStatus(AsyncWebServerRequest* request) {
   request->send(200, "application/json", json);
 }
 
+namespace {
+struct CuePushBody {
+  AsyncWebServerRequest* request = nullptr;
+  char json[128];
+};
+
+CuePushBody g_cuePushBody;
+}  // namespace
+
 void handleCuePush(AsyncWebServerRequest* request, uint8_t* data, size_t len,
                    size_t index, size_t total) {
-  static char json[128];
-  if (total >= sizeof(json) || total == 0) {
+  if (total >= sizeof(g_cuePushBody.json) || total == 0) {
     request->send(413, "application/json", "{\"ok\":0}");
     return;
   }
 
   if (index == 0) {
-    json[0] = '\0';
+    if (g_cuePushBody.request != nullptr && g_cuePushBody.request != request) {
+      request->send(503, "application/json", "{\"ok\":0}");
+      return;
+    }
+    g_cuePushBody.request = request;
+    g_cuePushBody.json[0] = '\0';
   }
 
-  const size_t offset = min(index, sizeof(json) - 1);
-  const size_t copyLen = min(len, sizeof(json) - 1 - offset);
-  memcpy(json + offset, data, copyLen);
-  json[offset + copyLen] = '\0';
+  if (g_cuePushBody.request != request) {
+    return;
+  }
+
+  const size_t offset = min(index, sizeof(g_cuePushBody.json) - 1);
+  const size_t copyLen = min(len, sizeof(g_cuePushBody.json) - 1 - offset);
+  memcpy(g_cuePushBody.json + offset, data, copyLen);
+  g_cuePushBody.json[offset + copyLen] = '\0';
 
   if (index + len < total) {
     return;
   }
 
-  if (peerSync.applyIncomingJson(json)) {
+  g_cuePushBody.request = nullptr;
+
+  if (peerSync.applyIncomingJson(g_cuePushBody.json)) {
     request->send(200, "application/json", "{\"ok\":1}");
   } else {
     request->send(409, "application/json", "{\"ok\":0}");
@@ -171,6 +190,8 @@ void setup() {
     server.startCaptivePortal(apSsid, AP_PASSWORD, "/setup");
   }
 
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+
   server.setConfigSavedCallback(onConfigSaved);
 
   cueIO.begin();
@@ -187,10 +208,10 @@ void setup() {
     Serial.print(LINE_END);
   }
 
-  Serial.printf_P(PSTR("\r\nCue Light Webserver %s at "), FIRMWARE_VERSION);
+  Serial.printf_P(PSTR("Cue Light Webserver %s at "), FIRMWARE_VERSION);
   Serial.print(server.getServerIP());
   Serial.print(LINE_END);
-  Serial.print(F("Dashboard at /. Configure network at /setup"));
+  Serial.print(F("Dashboard at /. Configure network at /setup\r\nReady.\r\n"));
   Serial.print(LINE_END);
 }
 

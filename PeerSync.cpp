@@ -52,6 +52,10 @@ void mdnsServiceQueryCallback(MDNSResponder::MDNSServiceInfo serviceInfo,
 }
 }  // namespace
 
+void PeerSync::formatIp(char* buffer, size_t size, const IPAddress& ip) {
+  snprintf(buffer, size, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
+
 void PeerSync::setNetworkFilter(uint16_t systemId, uint16_t cueGroup) {
   _systemId = systemId;
   _cueGroup = cueGroup;
@@ -145,10 +149,16 @@ bool PeerSync::begin() {
   _lastDiscoveryMs = 0;
   _lastPollMs = 0;
   _pollIndex = 0;
+  _pushPending = false;
+  _pushDeferred = false;
+  _pushRemaining = 0;
+  _suppressPollUntilMs = 0;
+  _mdnsEventCount = 0;
 
+  char ipStr[16];
+  formatIp(ipStr, sizeof(ipStr), WiFi.localIP());
   Serial.printf_P(PSTR("Peer sync ready: hostname=%s.local ip=%s system_id=%u cue_group=%u\r\n"),
-                  hostname, WiFi.localIP().toString().c_str(), _systemId,
-                  _cueGroup);
+                  hostname, ipStr, _systemId, _cueGroup);
   return true;
 }
 
@@ -162,12 +172,11 @@ void PeerSync::buildStateJson(char* buffer, size_t size) const {
 }
 
 bool PeerSync::applyIncomingJson(const char* json) {
-  return parseAndApply(json);
+  return parseAndApply(json, ApplySource::Push);
 }
 
-void PeerSync::formatPeerUrl(char* buffer, size_t size, const IPAddress& ip) {
-  snprintf(buffer, size, "http://%u.%u.%u.%u/api/cues", ip[0], ip[1], ip[2],
-           ip[3]);
+void PeerSync::markLocalChange() {
+  _suppressPollUntilMs = millis() + PEER_SYNC_POLL_SUPPRESS_MS;
 }
 
 void PeerSync::notifyLocalChange() {
@@ -175,10 +184,36 @@ void PeerSync::notifyLocalChange() {
     return;
   }
 
+  markLocalChange();
   buildStateJson(_pushJson, sizeof(_pushJson));
+
+  const uint8_t peers = countPeers();
+  if (peers == 0) {
+    _pushDeferred = true;
+    return;
+  }
+
+  schedulePush();
+}
+
+void PeerSync::formatPeerUrl(char* buffer, size_t size, const IPAddress& ip) {
+  snprintf(buffer, size, "http://%u.%u.%u.%u/api/cues", ip[0], ip[1], ip[2],
+           ip[3]);
+}
+
+void PeerSync::schedulePush() {
+  const uint8_t peers = countPeers();
+  if (peers == 0) {
+    _pushDeferred = true;
+    _pushPending = false;
+    _pushRemaining = 0;
+    return;
+  }
+
   _pushPending = true;
+  _pushDeferred = false;
   _pushScanIndex = 0;
-  _pushRemaining = countPeers();
+  _pushRemaining = peers;
 }
 
 bool PeerSync::pushToPeer(const PeerEntry& peer, const char* json) {
@@ -199,7 +234,11 @@ bool PeerSync::pushToPeer(const PeerEntry& peer, const char* json) {
 }
 
 bool PeerSync::processPendingPush() {
-  if (!_pushPending || _pushRemaining == 0) {
+  if (!_pushPending) {
+    return false;
+  }
+
+  if (_pushRemaining == 0) {
     _pushPending = false;
     return false;
   }
@@ -213,11 +252,14 @@ bool PeerSync::processPendingPush() {
     }
 
     if (pushToPeer(peer, _pushJson)) {
-      Serial.printf_P(PSTR("Peer sync: pushed to %s\r\n"),
-                      peer.ip.toString().c_str());
+      peer.lastSeenMs = millis();
+      char ipStr[16];
+      formatIp(ipStr, sizeof(ipStr), peer.ip);
+      Serial.printf_P(PSTR("Peer sync: pushed to %s\r\n"), ipStr);
     } else {
-      Serial.printf_P(PSTR("Peer sync: push failed %s\r\n"),
-                      peer.ip.toString().c_str());
+      char ipStr[16];
+      formatIp(ipStr, sizeof(ipStr), peer.ip);
+      Serial.printf_P(PSTR("Peer sync: push failed %s\r\n"), ipStr);
     }
 
     cueIO.loop();
@@ -225,6 +267,7 @@ bool PeerSync::processPendingPush() {
     --_pushRemaining;
     if (_pushRemaining == 0) {
       _pushPending = false;
+      markLocalChange();
     }
 
     yield();
@@ -256,8 +299,9 @@ PeerSync::PeerEntry* PeerSync::allocPeer(IPAddress ip) {
       peer.valid = true;
       peer.ip = ip;
       peer.lastSeenMs = millis();
-      Serial.printf_P(PSTR("Peer sync: peer added %s\r\n"),
-                      ip.toString().c_str());
+      char ipStr[16];
+      formatIp(ipStr, sizeof(ipStr), ip);
+      Serial.printf_P(PSTR("Peer sync: peer added %s\r\n"), ipStr);
       return &peer;
     }
   }
@@ -268,9 +312,60 @@ PeerSync::PeerEntry* PeerSync::allocPeer(IPAddress ip) {
 }
 
 void PeerSync::touchPeer(IPAddress ip) {
+  const bool hadPeers = countPeers() > 0;
   PeerEntry* peer = allocPeer(ip);
   if (peer != nullptr) {
     peer->lastSeenMs = millis();
+  }
+
+  if (_pushDeferred && !hadPeers && countPeers() > 0) {
+    buildStateJson(_pushJson, sizeof(_pushJson));
+    schedulePush();
+  }
+}
+
+void PeerSync::removePeer(IPAddress ip) {
+  PeerEntry* peer = findPeer(ip);
+  if (peer == nullptr) {
+    return;
+  }
+
+  char ipStr[16];
+  formatIp(ipStr, sizeof(ipStr), ip);
+  Serial.printf_P(PSTR("Peer sync: peer removed %s\r\n"), ipStr);
+  peer->valid = false;
+}
+
+void PeerSync::queueMdnsEvent(IPAddress ip, bool added) {
+  if (_mdnsEventCount >= PEER_SYNC_MDNS_EVENT_QUEUE) {
+    return;
+  }
+
+  noInterrupts();
+  _mdnsEvents[_mdnsEventCount].ip = ip;
+  _mdnsEvents[_mdnsEventCount].added = added;
+  ++_mdnsEventCount;
+  interrupts();
+}
+
+void PeerSync::processMdnsEvents() {
+  MdnsEvent events[PEER_SYNC_MDNS_EVENT_QUEUE];
+  uint8_t count = 0;
+
+  noInterrupts();
+  count = _mdnsEventCount;
+  for (uint8_t i = 0; i < count; ++i) {
+    events[i] = _mdnsEvents[i];
+  }
+  _mdnsEventCount = 0;
+  interrupts();
+
+  for (uint8_t i = 0; i < count; ++i) {
+    if (events[i].added) {
+      touchPeer(events[i].ip);
+    } else {
+      removePeer(events[i].ip);
+    }
   }
 }
 
@@ -291,20 +386,12 @@ void PeerSync::handleMdnsAnswer(MDNSResponder::MDNSServiceInfo& serviceInfo,
     return;
   }
 
-  if (!added) {
-    return;
-  }
-
-  if (!peerMatchesFilter(serviceInfo)) {
-    return;
-  }
-
   const IPAddress selfIp = WiFi.localIP();
   for (const auto& ip : serviceInfo.IP4Adresses()) {
     if (ip == IPAddress(0, 0, 0, 0) || ip == selfIp) {
       continue;
     }
-    touchPeer(ip);
+    queueMdnsEvent(ip, added);
   }
 }
 
@@ -338,14 +425,19 @@ void PeerSync::expireStalePeers() {
       continue;
     }
     if ((now - peer.lastSeenMs) > PEER_SYNC_PEER_STALE_MS) {
-      Serial.printf_P(PSTR("Peer sync: dropping stale peer %s\r\n"),
-                      peer.ip.toString().c_str());
+      char ipStr[16];
+      formatIp(ipStr, sizeof(ipStr), peer.ip);
+      Serial.printf_P(PSTR("Peer sync: dropping stale peer %s\r\n"), ipStr);
       peer.valid = false;
     }
   }
 }
 
-bool PeerSync::parseAndApply(const char* json) {
+bool PeerSync::parseAndApply(const char* json, ApplySource source) {
+  if (source == ApplySource::Poll && millis() < _suppressPollUntilMs) {
+    return false;
+  }
+
   uint32_t systemId = 0;
   uint32_t cueGroup = 0;
   uint32_t cue1 = 0;
@@ -389,15 +481,17 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
   char url[48];
   formatPeerUrl(url, sizeof(url), peer.ip);
   if (!http.begin(client, url)) {
-    Serial.printf_P(PSTR("Peer sync: HTTP begin failed for %s\r\n"),
-                    peer.ip.toString().c_str());
+    char ipStr[16];
+    formatIp(ipStr, sizeof(ipStr), peer.ip);
+    Serial.printf_P(PSTR("Peer sync: HTTP begin failed for %s\r\n"), ipStr);
     return false;
   }
 
   const int code = http.GET();
   if (code != HTTP_CODE_OK) {
-    Serial.printf_P(PSTR("Peer sync: HTTP %d from %s\r\n"), code,
-                    peer.ip.toString().c_str());
+    char ipStr[16];
+    formatIp(ipStr, sizeof(ipStr), peer.ip);
+    Serial.printf_P(PSTR("Peer sync: HTTP %d from %s\r\n"), code, ipStr);
     http.end();
     return false;
   }
@@ -413,9 +507,10 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
 
   buffer[len] = '\0';
 
-  const bool applied = parseAndApply(buffer);
-  Serial.printf_P(PSTR("Peer sync: polled %s %s\r\n"),
-                  peer.ip.toString().c_str(),
+  const bool applied = parseAndApply(buffer, ApplySource::Poll);
+  char ipStr[16];
+  formatIp(ipStr, sizeof(ipStr), peer.ip);
+  Serial.printf_P(PSTR("Peer sync: polled %s %s\r\n"), ipStr,
                   applied ? PSTR("applied") : PSTR("OK"));
   return true;
 }
@@ -427,8 +522,9 @@ void PeerSync::loop() {
 
   cueIO.loop();
   MDNS.update();
+  processMdnsEvents();
 
-  // One network operation per loop — avoids watchdog resets.
+  // Push always wins over discovery and poll.
   if (processPendingPush()) {
     return;
   }
@@ -440,9 +536,13 @@ void PeerSync::loop() {
     refreshPeersFromMdns();
     expireStalePeers();
     _lastDiscoveryMs = now;
+    // Never poll in the same iteration as mDNS refresh — avoids racing a
+    // background GET against a just-completed push snapshot.
+    return;
   }
 
-  if ((now - _lastPollMs) < PEER_SYNC_POLL_INTERVAL_MS) {
+  if (_pushPending || _pushDeferred || now < _suppressPollUntilMs ||
+      (now - _lastPollMs) < PEER_SYNC_POLL_INTERVAL_MS) {
     return;
   }
 
