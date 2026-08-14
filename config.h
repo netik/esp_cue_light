@@ -1,6 +1,6 @@
 #pragma once
 
-#define FIRMWARE_VERSION "1.1.3"
+#define FIRMWARE_VERSION "1.1.4"
 
 // NodeMCU pin labels in comments — change GPIO numbers here to rewire.
 #define PIN_BTN_CUE1 5   // D1
@@ -37,8 +37,7 @@
 #define PEER_SYNC_PUSH_TIMEOUT_MS 800
 #define PEER_SYNC_PEER_STALE_MS 120000
 
-#define BTN_DEBOUNCE_MS 25
-#define BTN_LOCKOUT_MS 300
+#define BTN_LOCKOUT_MS 150
 
 #define AP_PASSWORD "123456789"
 

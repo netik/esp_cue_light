@@ -21,10 +21,7 @@ private:
     uint8_t greenPin;
     uint8_t state;
     uint32_t seq;
-    bool lastStableLevel;
     bool lastReadingLevel;
-    bool pendingPress;
-    unsigned long lastDebounceMs;
     unsigned long lastAcceptedMs;
   };
 
@@ -34,7 +31,8 @@ private:
   const CueChannel* cueByNumber(uint8_t cueNumber) const;
   void applyOutputs(CueChannel& cue);
   void updateStatusLed();
-  void acceptButtonPress(CueChannel& cue);
+  bool acceptButtonPress(CueChannel& cue);
+  void processPendingButtons();
   void pollButton(CueChannel& cue);
 };
 

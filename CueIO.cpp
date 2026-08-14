@@ -4,6 +4,14 @@
 
 CueIO cueIO;
 
+namespace {
+volatile uint8_t g_btnPendingMask = 0;
+
+void IRAM_ATTR btn1Isr() { g_btnPendingMask |= 0x01; }
+
+void IRAM_ATTR btn2Isr() { g_btnPendingMask |= 0x02; }
+}  // namespace
+
 CueIO::CueChannel* CueIO::cueByNumber(uint8_t cueNumber) {
   if (cueNumber < 1 || cueNumber > CUE_COUNT) {
     return nullptr;
@@ -31,19 +39,23 @@ void CueIO::updateStatusLed() {
 
 void CueIO::begin() {
   _cues[0] = {CUE_NUMBER_1, PIN_BTN_CUE1, PIN_CUE1_RED, PIN_CUE1_GREEN,
-              CUE_STATE_RED, 0, false, false, false, 0, 0};
+              CUE_STATE_RED, 0, false, 0};
   _cues[1] = {CUE_NUMBER_2, PIN_BTN_CUE2, PIN_CUE2_RED, PIN_CUE2_GREEN,
-              CUE_STATE_RED, 0, false, false, false, 0, 0};
+              CUE_STATE_RED, 0, false, 0};
 
   for (auto& cue : _cues) {
     pinMode(cue.buttonPin, INPUT_PULLUP);
     pinMode(cue.redPin, OUTPUT);
     pinMode(cue.greenPin, OUTPUT);
+    cue.lastReadingLevel = digitalRead(cue.buttonPin) == LOW;
     applyOutputs(cue);
   }
 
   pinMode(PIN_STATUS_LED, OUTPUT);
   updateStatusLed();
+
+  attachInterrupt(digitalPinToInterrupt(PIN_BTN_CUE1), btn1Isr, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_BTN_CUE2), btn2Isr, FALLING);
 }
 
 uint8_t CueIO::getCueState(uint8_t cueNumber) const {
@@ -92,54 +104,46 @@ void CueIO::setCueState(uint8_t cueNumber, uint8_t state, bool sync) {
   }
 }
 
-void CueIO::acceptButtonPress(CueChannel& cue) {
+bool CueIO::acceptButtonPress(CueChannel& cue) {
   const unsigned long now = millis();
   if ((now - cue.lastAcceptedMs) < BTN_LOCKOUT_MS) {
-    cue.pendingPress = false;
-    return;
+    return false;
   }
 
   cue.lastAcceptedMs = now;
-  cue.pendingPress = false;
 
   const uint8_t nextState =
       cue.state == CUE_STATE_RED ? CUE_STATE_GREEN : CUE_STATE_RED;
   setCueState(cue.cueNumber, nextState, true);
+  return true;
+}
+
+void CueIO::processPendingButtons() {
+  uint8_t pending;
+  noInterrupts();
+  pending = g_btnPendingMask;
+  g_btnPendingMask = 0;
+  interrupts();
+
+  for (uint8_t i = 0; i < CUE_COUNT; ++i) {
+    const uint8_t bit = 1u << i;
+    if ((pending & bit) == 0) {
+      continue;
+    }
+    acceptButtonPress(_cues[i]);
+  }
 }
 
 void CueIO::pollButton(CueChannel& cue) {
   const bool pressed = digitalRead(cue.buttonPin) == LOW;
-  const unsigned long now = millis();
-
-  if (pressed != cue.lastReadingLevel) {
-    cue.lastDebounceMs = now;
-    if (pressed) {
-      cue.pendingPress = true;
-    }
-    cue.lastReadingLevel = pressed;
-  }
-
-  if ((now - cue.lastDebounceMs) < BTN_DEBOUNCE_MS) {
-    return;
-  }
-
-  if (pressed == cue.lastStableLevel) {
-    return;
-  }
-
-  const bool wasStablePressed = cue.lastStableLevel;
-  cue.lastStableLevel = pressed;
-
-  if (pressed && !wasStablePressed) {
-    // Debounced press — toggle immediately for responsive lamps.
-    acceptButtonPress(cue);
-  } else if (!pressed && !wasStablePressed && cue.pendingPress) {
-    // Quick tap — released before debounce confirmed press.
+  if (pressed && !cue.lastReadingLevel) {
     acceptButtonPress(cue);
   }
+  cue.lastReadingLevel = pressed;
 }
 
 void CueIO::loop() {
+  processPendingButtons();
   for (auto& cue : _cues) {
     pollButton(cue);
   }

@@ -220,6 +220,8 @@ bool PeerSync::processPendingPush() {
                       peer.ip.toString().c_str());
     }
 
+    cueIO.loop();
+
     --_pushRemaining;
     if (_pushRemaining == 0) {
       _pushPending = false;
@@ -423,6 +425,7 @@ void PeerSync::loop() {
     return;
   }
 
+  cueIO.loop();
   MDNS.update();
 
   // One network operation per loop — avoids watchdog resets.
@@ -463,6 +466,7 @@ void PeerSync::loop() {
       peer.lastSeenMs = now;
     }
 
+    cueIO.loop();
     yield();
     _lastPollMs = now;
     return;
