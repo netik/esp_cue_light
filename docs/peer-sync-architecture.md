@@ -9,6 +9,7 @@ This document describes how cue-light boards synchronize state on a local networ
 - **Multiple boards** on the same WiFi/LAN, powered on in arbitrary order.
 - **No missed cue events** — if any board changes a cue, all others must eventually reflect that state.
 - **Late joiners** — a board that connects after a cue change must catch up without manual intervention.
+- **Low latency** — cue changes should propagate to other boards in well under a second during a show.
 - **ESP8266 constraints** — limited RAM (~20–30 KB free with the async web server loaded); no room for MQTT brokers/clients or heavy protocols on-device.
 - **No external infrastructure** — no Raspberry Pi broker, no cloud, no dedicated leader hardware.
 
@@ -51,17 +52,19 @@ Peer sync with sequence numbers avoids the problem entirely: every board is equa
 ┌──────────────────────────────────────────────────────────────────┐
 │                         WiFi LAN                                 │
 │                                                                  │
-│   ┌─────────────┐    mDNS browse       ┌─────────────┐           │
-│   │   Board A   │◄──── _cuelight ────► │   Board B   │           │
-│   │  .local:80  │                      │  .local:80  │           │
-│   └──────┬──────┘                      └──────┬──────┘           │
-│          │                                    │                  │
-│          │   GET /api/cues  (every ~3 s)      │                  │
-│          └──────────────►◄────────────────────┘                  │
+│   ┌─────────────┐    mDNS (_cuelight._tcp)   ┌─────────────┐     │
+│   │   Board A   │◄──────────────────────────►│   Board B   │     │
+│   │  .local:80  │                            │  .local:80  │     │
+│   └──────┬──────┘                            └──────┬──────┘     │
+│          │                                          │            │
+│          │  POST /api/cues  (on button press)       │            │
+│          └──────────────────►───────────────────────┘            │
+│          │  GET /api/cues  (every 500 ms, fallback) │            │
+│          └──────────────────►◄──────────────────────┘            │
 │                                                                  │
 │          ┌─────────────┐                                         │
-│          │   Board C   │  joins anytime, browses mDNS, polls     │
-│          │  .local:80  │  peers, applies highest seq per cue     │
+│          │   Board C   │  joins anytime, mDNS discover, poll     │
+│          │  .local:80  │  peers, apply highest seq per cue       │
 │          └─────────────┘                                         │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -69,10 +72,11 @@ Peer sync with sequence numbers avoids the problem entirely: every board is equa
 ### Core principles
 
 1. **Peer equality** — no leader, no follower, no broker.
-2. **Pull-based sync** — boards fetch state from peers via HTTP; polling is the reliability layer.
-3. **Per-cue sequence numbers** — every state change increments that cue's sequence; receivers apply only newer sequences.
-4. **mDNS for discovery only** — service records locate peers; HTTP carries authoritative state.
-5. **Filter by network identity** — `system_id` and `cue_group` isolate unrelated installations on the same LAN.
+2. **Push on change** — local button press immediately POSTs state to all known peers.
+3. **Poll as fallback** — background GET polling catches missed pushes and late joiners.
+4. **Per-cue sequence numbers** — every local change increments that cue's sequence; receivers apply only newer sequences.
+5. **mDNS for discovery only** — service records locate peers; HTTP carries authoritative state.
+6. **Filter by network identity** — `system_id` and `cue_group` isolate unrelated installations on the same LAN.
 
 ---
 
@@ -80,51 +84,69 @@ Peer sync with sequence numbers avoids the problem entirely: every board is equa
 
 ### mDNS advertisement (each board)
 
-When WiFi is connected, each board:
+When WiFi is connected, each board (after `server.init()`):
 
 1. Calls `MDNS.begin(hostname)` with a unique hostname derived from MAC (`CueLight-A1B2`).
-2. Registers service `_cuelight._tcp` on port **80**.
-3. Publishes TXT records `system_id` and `cue_group` for optional pre-filtering during browse.
+2. Registers service `_cuelight._tcp` on port **80** via `MDNS.addService()`.
+3. Publishes TXT records `system_id` and `cue_group` for pre-filtering during browse.
 
 Other boards (and laptops with Bonjour/Avahi) can resolve `CueLight-A1B2.local` or browse `_cuelight._tcp`.
 
-### mDNS discovery (periodic)
+### mDNS discovery (continuous)
 
-Every **30 seconds** (configurable via `PEER_SYNC_DISCOVERY_MS`), each board runs:
+ESP8266 uses the **LEAmDNS** API (not the legacy synchronous `queryService()`). Each board:
 
-```cpp
-MDNS.queryService("cuelight", "tcp");
+1. Installs a dynamic service query with `MDNS.installServiceQuery("cuelight", "tcp", callback)`.
+2. Calls `MDNS.update()` on every main-loop iteration — **required** for mDNS to send and receive packets.
+3. Refreshes the peer table from `MDNS.answerInfo()` every **15 seconds** (configurable via `PEER_SYNC_DISCOVERY_MS`).
+
+Peer sync starts **after** the web server initializes (`server.init()`), so the advertised HTTP service on port 80 is actually listening.
+
+Results populate a small in-memory peer table (max **8** peers). The board's own IP is excluded. TXT records `system_id` and `cue_group` filter unrelated peers during discovery.
+
+### HTTP push (primary sync path)
+
+When a physical button changes a cue locally:
+
+1. `CueIO::setCueState()` updates local state and increments the cue's sequence number.
+2. `PeerSync::pushStateToPeers()` builds the full state JSON and **POSTs** it to every known peer.
+3. Each peer's `POST /api/cues` handler calls `PeerSync::applyIncomingJson()` and applies state if sequences are newer.
+
+Typical latency to remote boards: **~100–300 ms** (one HTTP POST per peer).
+
+Serial on the sending board:
+
+```
+Cue 1 -> GREEN
+Peer sync: pushed to 192.168.1.43
 ```
 
-Results populate a small in-memory peer table (max **8** peers). The board's own IP is excluded.
+Serial on the receiving board:
 
-Peers not seen in discovery or polling for **120 seconds** are removed as stale.
+```
+Cue 1 -> GREEN (remote seq 5)
+```
 
-### HTTP polling (primary sync path)
+### HTTP polling (fallback sync path)
 
-Every **3 seconds** (configurable via `PEER_SYNC_POLL_INTERVAL_MS`), the board polls **one** peer per main-loop iteration (round-robin). This spreads HTTP work across loop cycles and avoids long blocking bursts.
+Every **500 ms** (configurable via `PEER_SYNC_POLL_INTERVAL_MS`), the board **GETs** `/api/cues` from **one** peer per main-loop iteration (round-robin). This catches:
 
-Request:
+- Pushes that failed (peer offline momentarily, HTTP timeout).
+- Late joiners that haven't received a push yet.
+- Any drift between boards.
 
 ```http
 GET /api/cues HTTP/1.1
 Host: 192.168.1.42
 ```
 
-The response is parsed; cue states are applied only when the remote sequence number is newer than the local sequence for that cue.
-
-### Immediate sync after local change
-
-When a physical button changes a cue locally:
-
-1. Local state and sequence number update immediately.
-2. `PeerSync::requestSync()` resets the poll timer so peers are queried as soon as possible.
-
-Polling still remains the safety net if the immediate round fails.
+The response is parsed with the same logic as POST; cue states apply only when the remote sequence is newer.
 
 ### `/api/cues` as the source of truth
 
-Every board exposes identical state via HTTP. The dashboard, peer sync, and external scripts all read the same endpoint. There is no separate sync channel.
+Every board exposes identical state via HTTP. The dashboard, peer sync push/poll, and external scripts all use the same JSON schema. There is no separate sync channel.
+
+State JSON is built centrally by `PeerSync::buildStateJson()` and used by both the GET handler and push logic.
 
 ---
 
@@ -137,7 +159,7 @@ seq1++   (only for the cue that changed)
 state1 = new value
 ```
 
-On **remote** apply, a candidate update is accepted only if its sequence is **newer** than the local sequence, using unsigned wrap-safe comparison:
+On **remote** apply (via POST or GET), a candidate update is accepted only if its sequence is **newer** than the local sequence, using unsigned wrap-safe comparison:
 
 ```cpp
 bool isNewer(uint32_t incoming, uint32_t current) {
@@ -145,15 +167,17 @@ bool isNewer(uint32_t incoming, uint32_t current) {
 }
 ```
 
+Remote apply does **not** re-push or re-increment sequences — it only adopts the peer's sequence number.
+
 ### Simultaneous changes
 
-If two boards change the **same cue** at nearly the same time before either poll completes, the higher sequence wins once both boards have polled each other. In practice, human button presses are seconds apart; this is sufficient for cue lights.
+If two boards change the **same cue** at nearly the same time, the higher sequence wins once both boards have exchanged state. In practice, human button presses are seconds apart; this is sufficient for cue lights.
 
 If two boards change **different cues** simultaneously, each cue's sequence is independent — both changes propagate without conflict.
 
 ### Initial state
 
-On boot, all sequences start at **0** and all cues start **RED**. The first board to change a cue sets `seq` to 1. Joining boards poll peers and adopt any non-zero sequences.
+On boot, all sequences start at **0** and all cues start **RED**. The first board to change a cue sets `seq` to 1. Joining boards discover peers via mDNS, poll them, and adopt any non-zero sequences.
 
 ---
 
@@ -162,22 +186,23 @@ On boot, all sequences start at **0** and all cues start **RED**. The first boar
 | Event | Typical latency |
 |-------|-----------------|
 | Local button → local lamp | Immediate (< 1 ms) |
-| Local button → remote board | 0–3 s (next poll cycle) + HTTP RTT |
-| Local button → remote board (best case) | Immediate poll triggered via `requestSync()` |
-| Board joins WiFi | Up to 30 s for mDNS discovery + 3 s for first poll |
-| Board reconnects after drop | Discovery on next cycle; poll on reconnect |
+| Local button → remote board | ~100–300 ms (HTTP POST push) |
+| Missed push → remote board | ≤500 ms (background GET poll) |
+| Board joins WiFi | Up to 15 s for mDNS refresh + ≤500 ms for first poll |
+| Board reconnects after drop | Discovery on next 15 s cycle; poll within 500 ms |
 
 Tune in `config.h`:
 
 | Constant | Default | Purpose |
 |----------|---------|---------|
-| `PEER_SYNC_POLL_INTERVAL_MS` | 3000 | How often each peer is polled |
-| `PEER_SYNC_DISCOVERY_MS` | 30000 | How often mDNS browse refreshes peer list |
-| `PEER_SYNC_HTTP_TIMEOUT_MS` | 2000 | HTTP client timeout per peer |
+| `PEER_SYNC_PUSH_TIMEOUT_MS` | 800 | Timeout for POST push to each peer |
+| `PEER_SYNC_POLL_INTERVAL_MS` | 500 | Background GET poll interval (fallback) |
+| `PEER_SYNC_DISCOVERY_MS` | 15000 | How often mDNS peer table is refreshed |
+| `PEER_SYNC_HTTP_TIMEOUT_MS` | 1500 | HTTP GET timeout per peer poll |
 | `PEER_SYNC_PEER_STALE_MS` | 120000 | Remove unseen peers after this duration |
 | `PEER_SYNC_MAX_PEERS` | 8 | Max tracked peers |
 
-Lower poll interval = faster sync, more WiFi/CPU load. For live cueing, 2–3 s is a reasonable default.
+Lower poll interval = faster fallback sync, more WiFi traffic. Push latency is dominated by HTTP RTT, not the poll interval.
 
 ---
 
@@ -190,7 +215,7 @@ Two boards sync only when both match:
 | `system_id` | `/setup` → System ID | 1 |
 | `cue_group` | `/setup` → Cue Group | 1 |
 
-Filtering happens at HTTP apply time: responses with mismatched `system_id` or `cue_group` are ignored.
+Filtering happens at HTTP apply time (both POST and GET): payloads with mismatched `system_id` or `cue_group` are ignored. mDNS TXT records provide an additional filter during discovery.
 
 Use different System IDs to isolate unrelated shows on one VLAN. Use different Cue Groups within a System ID to partition sub-groups (e.g. stage left vs stage right).
 
@@ -200,13 +225,14 @@ Use different System IDs to isolate unrelated shows on one VLAN. Use different C
 
 | Scenario | Behavior |
 |----------|----------|
-| Peer temporarily unreachable | Skipped for that poll cycle; retried on next round. Local cues still work. |
-| All peers offline | Board operates standalone; re-syncs when peers return. |
+| Push fails (peer unreachable) | Logged on sender; fallback GET poll recovers within 500 ms |
+| Peer temporarily unreachable | Skipped for that poll cycle; retried on next round |
+| All peers offline | Board operates standalone; re-syncs when peers return |
 | WiFi AP client isolation enabled | mDNS and HTTP between clients fails. **Disable client isolation** on the AP. |
-| Board in AP/captive-portal mode | Peer sync disabled until station mode connects to LAN. |
-| Duplicate hostname (rare) | mDNS negotiation resolves; IP-based polling still works. |
-| More than 8 peers in one group | Only first 8 discovered IPs tracked; increase `PEER_SYNC_MAX_PEERS` if needed. |
-| Sequence overflow | Safe for practical show lengths; 32-bit counter wraps with correct comparison math. |
+| Board in AP/captive-portal mode | Peer sync disabled until station mode connects to LAN |
+| Duplicate hostname (rare) | mDNS uses MAC-derived names; collision unlikely |
+| More than 8 peers in one group | Only first 8 discovered IPs tracked; increase `PEER_SYNC_MAX_PEERS` if needed |
+| Sequence overflow | Safe for practical show lengths; 32-bit counter wraps with correct comparison math |
 
 ---
 
@@ -217,7 +243,7 @@ Peer sync adds roughly:
 - **~2–3 KB RAM** — peer table, HTTP client, small parse buffer (one request at a time).
 - **~4–8 KB flash** — PeerSync module + ESP8266HTTPClient (core library).
 
-No TLS, no JSON library, no second TCP server. JSON is parsed with lightweight string scanning (same approach as the former UDP module).
+No TLS, no JSON library, no second TCP server. JSON is parsed with lightweight string scanning.
 
 ---
 
@@ -225,23 +251,21 @@ No TLS, no JSON library, no second TCP server. JSON is parsed with lightweight s
 
 | Aspect | UDP broadcast (removed) | Peer sync (current) |
 |--------|-------------------------|---------------------|
-| Delivery guarantee | None | Eventual (poll-based) |
-| Late joiner support | None | Yes (poll peers on join) |
-| Discovery | Implicit (broadcast) | mDNS browse |
+| Delivery guarantee | None | Push + fallback poll |
+| Late joiner support | None | Yes (mDNS + GET poll) |
+| Discovery | Implicit (broadcast) | LEAmDNS browse |
 | External tools | Listen on UDP port | `GET /api/cues` or mDNS browse |
 | RAM cost | ~1 KB | ~2–3 KB |
-| Latency | ~0 ms (if not lost) | 0–3 s typical |
+| Latency | ~0 ms (if not lost) | ~100–300 ms typical |
 
 ---
 
 ## Future extensions (not implemented)
 
-These are documented for planning; none are required for reliable cue sync today.
-
-- **HTTP POST notify** — push state to peers immediately in addition to polling (lower latency, slightly more code).
 - **MQTT broker** — if always-on show hardware is available; boards would become thin clients.
 - **Leader mode** — optional config for sites that want a single authoritative IP.
 - **WebSocket push** — real-time dashboard updates without polling (dashboard already polls every 1 s).
+- **External POST control** — scripts could drive cues via `POST /api/cues` (endpoint exists for peer sync today).
 
 ---
 

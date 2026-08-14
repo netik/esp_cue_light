@@ -1,207 +1,247 @@
 # Cue Light Webserver
 
-ESP8266 (NodeMCU v2) firmware for a two-cue light controller with a built-in web UI, WiFi setup portal, and **peer sync** between devices on the same LAN.
+ESP8266 (NodeMCU v2) firmware for a two-cue light controller with a web dashboard, WiFi setup portal, and **peer sync** across boards on the same LAN.
 
-Physical buttons toggle cue states locally; changes propagate to other boards via **mDNS discovery + HTTP polling** (no leader, no broker). See **[docs/](./docs/)** for full architecture and protocol details.
+Press a button on any board to toggle a cue red/green locally. That change **POSTs immediately** to every other board in the same **System ID** and **Cue Group** (~100–300 ms). Background polling catches anything missed.
 
-Boards sync only when they share the same **System ID** and **Cue Group**.
+**Firmware version:** 1.1.2
+
+## How sync works
+
+```
+Board A  ←—— mDNS (_cuelight._tcp) ——→  Board B
+         ←—— POST /api/cues on button press
+         ←—— GET /api/cues every 500 ms (fallback)
+```
+
+1. Each board advertises itself on the LAN via LEAmDNS.
+2. On button press, the board **POSTs** state to all known peers immediately.
+3. Background **GET** polling every 500 ms catches missed pushes and late joiners.
+4. Per-cue **sequence numbers** resolve conflicts — highest seq wins.
+
+Full design details: **[docs/peer-sync-architecture.md](./docs/peer-sync-architecture.md)**
+
+## Quick start
+
+```bash
+./scripts/setup-libraries.sh   # once, installs ESP8266 core + libraries
+make upload-both               # flash firmware to both boards (see ports below)
+```
+
+1. Power boards and connect them to your show WiFi via `/setup`.
+2. Set the same **System ID** and **Cue Group** on every board (defaults: `1` / `1`).
+3. Press a button on one board — others should follow within **~300 ms**.
+
+First-time flash also needs LittleFS once so `/index.htm` exists on disk:
+
+```bash
+make littlefs-both    # or make deploy-both for firmware + filesystem
+```
+
+After that, firmware-only uploads are fine when you are not changing `data/`.
+
+---
 
 ## Hardware
 
-Target board: **NodeMCU v2** (`esp8266:esp8266:nodemcuv2`, 4 MB flash with 2 MB LittleFS).
+Target: **NodeMCU v2** (`esp8266:esp8266:nodemcuv2`, 4 MB flash, 2 MB LittleFS).
 
-| Function        | NodeMCU pin | GPIO |
-|-----------------|-------------|------|
-| Cue 1 button    | D1          | 5    |
-| Cue 2 button    | D2          | 4    |
-| Cue 1 red lamp  | D5          | 14   |
-| Cue 1 green lamp| D6          | 12   |
-| Cue 2 red lamp  | D7          | 13   |
-| Cue 2 green lamp| D8          | 15   |
+| Function         | NodeMCU pin | GPIO |
+|------------------|-------------|------|
+| Cue 1 button     | D1          | 5    |
+| Cue 2 button     | D2          | 4    |
+| Cue 1 red lamp   | D5          | 14   |
+| Cue 1 green lamp | D6          | 12   |
+| Cue 2 red lamp   | D7          | 13   |
+| Cue 2 green lamp | D8          | 15   |
 
-Pin assignments live in `config.h` if you need to rewire.
+Pin assignments are in `config.h`.
+
+---
 
 ## Prerequisites
 
 - [Arduino CLI](https://arduino.github.io/arduino-cli/)
-- ESP8266 core and libraries (project script installs these):
+- Libraries installed by `./scripts/setup-libraries.sh`:
+  - `AsyncEspFsWebserver`
+  - `ESPAsyncTCP`
+  - `ESP32Async/ESPAsyncWebServer` (fork; setup script replaces stock library)
 
-```bash
-./scripts/setup-libraries.sh
-```
+Core libraries used by peer sync (included with ESP8266 core, no extra install):
 
-Required libraries:
+- `ESP8266mDNS`
+- `ESP8266HTTPClient`
 
-- `AsyncEspFsWebserver`
-- `ESPAsyncTCP`
-- `ESP32Async/ESPAsyncWebServer` (fork; the setup script replaces the stock library)
+---
 
 ## Build and upload
 
-### VS Code / Cursor tasks
+### Board ports
 
-Board ports are set in `.vscode/settings.json`:
+Configured in `.vscode/settings.json` and `Makefile`:
 
-| Board | Port |
-|-------|------|
-| **0001** | `/dev/cu.usbserial-0001` |
+| Board   | Port                      |
+|---------|---------------------------|
+| **0001**  | `/dev/cu.usbserial-0001`  |
 | **83430** | `/dev/cu.usbserial-83430` |
+
+### VS Code / Cursor tasks
 
 | Task | What it does |
 |------|----------------|
-| **Arduino: Compile (ESP8266)** | Build firmware (shared) |
-| **Arduino: Upload firmware → Board 0001 / 83430** | Compile + upload to one board |
-| **Arduino: Upload firmware → Both Boards** | Compile once, upload to both |
-| **Arduino: Upload LittleFS → Board 0001 / 83430** | Upload `data/` to one board |
-| **Arduino: Full Deploy → Board 0001 / 83430 / Both Boards** | Firmware + LittleFS |
+| **Arduino: Compile (ESP8266)** | Build firmware |
+| **Arduino: Upload firmware → Board 0001 / 83430 / Both** | Flash firmware only |
+| **Arduino: Upload LittleFS → Board 0001 / 83430** | Upload `data/` to flash |
+| **Arduino: Full Deploy → Board 0001 / 83430 / Both** | Firmware + LittleFS |
 | **Arduino: Serial Monitor → Board 0001 / 83430** | 115200 baud debug output |
 
-### Command line
+### Makefile targets
 
 ```bash
-# Per-board deploy
-make deploy-board1    # /dev/cu.usbserial-0001
-make deploy-board2    # /dev/cu.usbserial-83430
+make compile          # build only
+
+# Firmware only (skip when data/ unchanged)
+make upload-board1
+make upload-board2
+make upload-both
+
+# LittleFS only
+make littlefs-board1
+make littlefs-board2
+make littlefs-both
+
+# Firmware + LittleFS
+make deploy-board1
+make deploy-board2
 make deploy-both
 
-# Or override a single port
+# Ad-hoc port
 make upload PORT=/dev/cu.usbserial-0001
-make littlefs PORT=/dev/cu.usbserial-83430
 
-# Compile only
-make compile
+make monitor-board1   # serial monitor, 115200 baud
 ```
 
-**Important:** Uploading firmware alone does **not** install `data/index.htm`. Run **Upload LittleFS** (or **Full Deploy**) at least once so the status page is available at `/`.
+### LittleFS and setup config
 
-### Preserving setup config across LittleFS uploads
+LittleFS uploads replace the whole 2 MB filesystem partition. The upload script preserves `/setup/` (WiFi credentials, System ID, Cue Group) automatically:
 
-Each LittleFS upload replaces the whole 2 MB filesystem partition. Without care, that would erase `/setup/config.json` (WiFi credentials, System ID, Cue Group).
+1. Reads current `/setup/` from the device before flashing
+2. Falls back to `.littlefs-backup/setup/` if the read fails
+3. Merges preserved config into the new image
+4. Refreshes the local backup after a successful read
 
-The upload script now preserves the entire `/setup/` directory automatically:
+Use `--fresh` only when you intentionally want to wipe WiFi and options.
 
-1. **Read from device** — pulls the current LittleFS image over serial and extracts `/setup/`
-2. **Local backup fallback** — if the read fails, restores from `.littlefs-backup/setup/` (gitignored; contains WiFi credentials)
-3. **Merge and upload** — copies `data/` into a staging folder, overlays the preserved `/setup/`, then flashes the combined image
-4. **Refresh backup** — after a successful device read, updates `.littlefs-backup/`
+The dashboard at `/index.htm` is also embedded in firmware (`DashboardHtml.h`) and written to LittleFS on boot if missing — but an initial LittleFS upload is still recommended.
 
-Use `--fresh` when you intentionally want to wipe saved WiFi and options.
-
-On boot, the serial monitor prints the device IP and setup hint:
-
-```
-Cue Light Webserver 1.0.0 at 192.168.x.x
-Buttons D1/D2 toggle cues 1/2. Configure network at /setup
-```
+---
 
 ## First-time WiFi setup
 
-1. Power the board. It tries to connect to saved WiFi for 10 seconds.
+1. Power the board. It tries saved WiFi for 10 seconds.
 2. If that fails, it starts an access point:
-   - **SSID:** `CueLight-XXXX` (last two bytes of the MAC address)
+   - **SSID:** `CueLight-XXXX` (last two bytes of MAC)
    - **Password:** `123456789`
-3. Join that network. A captive portal should open; if not, browse to `http://192.168.4.1/setup`.
-4. On `/setup`, choose your WiFi network and set **System ID** and **Cue Group** (defaults: both `1`).
-5. Save. The device reconnects in station mode. Note the IP from the serial monitor.
+3. Join that network. Captive portal should open; otherwise go to `http://192.168.4.1/setup`.
+4. Choose your WiFi network. Set **System ID** and **Cue Group** (defaults: both `1`).
+5. Save. Note the station IP from the serial monitor.
 
-Settings are stored in LittleFS at `/setup/config.json`.
+Config is stored at `/setup/config.json` on LittleFS.
 
-## Web URLs
+**WiFi wipe:** hold the Cue 1 button for 3 seconds at boot.
 
-Replace `{host}` with the device IP (station mode) or `192.168.4.1` (AP mode). All paths are on port **80**.
+### Expected serial output (station mode)
 
-### Application (this project)
+```
+Peer sync ready: hostname=CueLight-8D22.local ip=192.168.x.x system_id=1 cue_group=1
 
-| URL | Method | Description |
-|-----|--------|-------------|
-| `/` | GET | Redirects to `/index.htm` if that file exists on LittleFS; otherwise redirects to `/setup`. |
-| `/index.htm` | GET | **Cue status dashboard** — live red/green indicators, polls `/api/cues` every second. Served from LittleFS (`data/index.htm`). |
-| `/api/cues` | GET | JSON snapshot of network filter and cue states. |
+Cue Light Webserver 1.1.2 at 192.168.x.x
+Dashboard at /. Configure network at /setup
+```
 
-**`/api/cues` response example:**
+Peer sync is unavailable in AP-only mode; boards still work locally via buttons.
+
+---
+
+## Web interface
+
+All URLs are on port **80**. Replace `{host}` with the board IP or `192.168.4.1` in AP mode.
+
+| URL | Description |
+|-----|-------------|
+| `/` | Dashboard (redirects to `/index.htm` or `/setup`) |
+| `/index.htm` | Live cue status — polls `/api/cues` every second |
+| `/api/cues` | JSON state — `GET` to read, `POST` to push (peer sync) |
+| `/setup` | WiFi credentials, System ID, Cue Group |
+
+**`/api/cues` example:**
 
 ```json
 {"system_id":1,"cue_group":1,"cue1":0,"cue2":1,"seq1":3,"seq2":7}
 ```
 
-- `cue1` / `cue2`: `0` = RED, `1` = GREEN
-- `seq1` / `seq2`: per-cue sequence numbers used for peer sync (see [docs/network-protocol.md](./docs/network-protocol.md))
+| Field | Values |
+|-------|--------|
+| `cue1`, `cue2` | `0` = RED, `1` = GREEN |
+| `seq1`, `seq2` | Per-cue sequence numbers for sync |
 
-### WiFi and configuration (AsyncEspFsWebserver)
+Full API and mDNS details: **[docs/network-protocol.md](./docs/network-protocol.md)**
 
-| URL | Method | Description |
-|-----|--------|-------------|
-| `/setup` | GET | WiFi credentials, **System ID**, **Cue Group**, and other saved options. |
-| `/setup-ws` | WebSocket | Backend for the setup page (scan, connect, save config). |
-| `/upload` | POST | Upload configuration or other files to LittleFS. |
-| `/reset` | GET | Responds with the current IP, then reboots the ESP8266. |
-| `/setup/logo.svg` | GET | Setup page logo (default embedded SVG if none on filesystem). |
-
-Config file on disk: `/setup/config.json`.
-
-In AP / captive-portal mode, OS connectivity-check URLs (e.g. `/generate_204`, `/hotspot-detect.html`) are redirected to `/setup`.
-
-### Filesystem editor (enabled in firmware)
-
-`server.enableFsCodeEditor()` is on in `cue_light_webserver.ino`.
-
-| URL | Method | Description |
-|-----|--------|-------------|
-| `/edit` | GET | Browser-based file editor (ACE). |
-| `/edit` | POST | Upload a file. |
-| `/edit` | PUT | Create or rename a file. |
-| `/edit` | DELETE | Delete a file. |
-| `/list?dir=/` | GET | JSON directory listing. |
-| `/status` | GET | Filesystem usage info. |
-
-### Static files
-
-Any other file on LittleFS is served directly (e.g. `/foo.css` → `/foo.css` on the filesystem). Gzip siblings (`.gz`) are used automatically when present.
-
-## Is `index.htm` used?
-
-Yes. The dashboard is embedded in firmware (`DashboardHtml.h`) and **automatically written to LittleFS** as `/index.htm` on boot (and after saving `/setup`) if the file is missing.
-
-You can still upload `data/index.htm` via **Upload LittleFS** to update the on-flash copy without reflashing firmware. The upload script always merges `data/` into the image and preserves runtime files (`/setup/`, `credentials.bin`).
-
-## Peer sync (board-to-board)
-
-Boards discover each other with **mDNS** (`_cuelight._tcp`) and poll `GET /api/cues` on peers every few seconds. There is no UDP broadcast and no central broker.
-
-| Topic | Document |
-|-------|----------|
-| Architecture and design rationale | [docs/peer-sync-architecture.md](./docs/peer-sync-architecture.md) |
-| HTTP API and mDNS records | [docs/network-protocol.md](./docs/network-protocol.md) |
-| Deployment and troubleshooting | [docs/operations-guide.md](./docs/operations-guide.md) |
-
-### Quick integration example
+### Browse boards from a laptop
 
 ```bash
 curl http://192.168.1.42/api/cues
-dns-sd -B _cuelight._tcp    # macOS: browse for boards
+dns-sd -B _cuelight._tcp          # macOS
+avahi-browse -rt _cuelight._tcp   # Linux
 ```
+
+### Other routes (AsyncEspFsWebserver)
+
+| URL | Description |
+|-----|-------------|
+| `/setup-ws` | WebSocket backend for setup page |
+| `/reset` | Reboot after returning current IP |
+| `/edit` | Browser filesystem editor (enabled in firmware) |
+
+---
+
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| [docs/README.md](./docs/README.md) | Documentation index |
+| [docs/peer-sync-architecture.md](./docs/peer-sync-architecture.md) | Design rationale, timing, failure modes |
+| [docs/network-protocol.md](./docs/network-protocol.md) | HTTP API, mDNS records, integration examples |
+| [docs/operations-guide.md](./docs/operations-guide.md) | Deployment checklist, monitoring, troubleshooting |
+
+---
 
 ## Project layout
 
 ```
-cue_light_webserver.ino   Main sketch (web server, WiFi, API route)
-config.h                  Pins, defaults, sync timing
+cue_light_webserver.ino   Main sketch — WiFi, web server, API
+config.h                  Pins, defaults, peer-sync timing
 CueIO.*                   Buttons, lamp outputs, sequence numbers
-PeerSync.*                mDNS discovery and HTTP peer polling
-docs/                     Architecture, protocol, operations guides
-data/index.htm            Status dashboard (uploaded to LittleFS)
+PeerSync.*                LEAmDNS discovery, HTTP POST push, GET polling
+DashboardHtml.h           Embedded dashboard (seeded to LittleFS)
+data/index.htm            Dashboard source (uploaded to LittleFS)
+docs/                     Architecture, protocol, operations
 scripts/
-  setup-libraries.sh      Install cores and libraries
+  setup-libraries.sh      Install ESP8266 core and libraries
   upload-littlefs.sh      Build and flash LittleFS image
 ```
 
+---
+
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---------|----------------|
-| `/` opens setup, not the dashboard | LittleFS not uploaded, or `/index.htm` missing from flash. Run **Upload LittleFS**. |
-| WiFi / options reset after LittleFS upload | Use the default upload script (preserves `/setup`). Avoid `--fresh` unless intentional. |
-| `/api/cues` works but `/index.htm` 404 | Filesystem empty or wrong partition layout. Re-run `./scripts/upload-littlefs.sh`. |
-| Cannot join WiFi after config | Use AP mode again; check `/setup` credentials. AP password is always `123456789`. |
-| Cues do not sync between devices | Match **System ID** and **Cue Group**; all devices must be on the same WiFi/LAN. Check AP client isolation is off. See [docs/operations-guide.md](./docs/operations-guide.md). |
-| Peer sync warning on boot | WiFi not connected yet (common in AP-only mode). Reconnect to your LAN. Device still works locally via buttons. |
+| Symptom | Fix |
+|---------|-----|
+| Cues work locally but don't sync | Match System ID and Cue Group on all boards. Disable WiFi client isolation. See [operations guide](./docs/operations-guide.md). |
+| `Peer sync unavailable` on boot | Normal in AP mode. Connect to show WiFi. |
+| Slow sync (~500 ms+) | Check serial for `push failed`; see [operations guide](./docs/operations-guide.md). |
+| `/` opens setup, not dashboard | Run `make littlefs-board1` (or `-board2`) once. |
+| WiFi reset after LittleFS upload | Use default upload script; avoid `--fresh` unless intentional. |
+| Can't join WiFi | Re-enter AP mode; AP password is always `123456789`. |
+
+More detail: **[docs/operations-guide.md](./docs/operations-guide.md)**

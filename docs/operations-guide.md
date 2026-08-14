@@ -2,13 +2,17 @@
 
 Practical steps for deploying, configuring, and troubleshooting cue-light boards on a show network.
 
+**Firmware:** v1.1.2
+
+---
+
 ## Deployment checklist
 
-1. **Flash firmware** — `make deploy-board1` (or VS Code *Full Deploy* task).
+1. **Flash firmware** — `make upload-board1` / `make upload-both` for firmware only, or `make deploy-both` if LittleFS also needs updating.
 2. **Join WiFi** — connect each board via captive portal at `/setup`.
 3. **Set System ID and Cue Group** — must match across all boards that should sync.
 4. **Verify mDNS** — from a laptop on the same LAN, browse `_cuelight._tcp`.
-5. **Verify sync** — press a button on board A; board B should follow within ~3 seconds.
+5. **Verify sync** — press a button on board A; board B should follow within **~300 ms**.
 6. **Confirm AP settings** — client isolation must be **off**.
 
 ---
@@ -36,23 +40,49 @@ After changing System ID or Cue Group, boards only sync with peers sharing the s
 On boot with WiFi connected:
 
 ```
-Peer sync ready: hostname=CueLight-A1B2 system_id=1 cue_group=1
-Peer sync: discovered 2 peer(s)
+Peer sync filter: system_id=1 cue_group=1
+Peer sync ready: hostname=CueLight-8D22.local ip=192.168.1.42 system_id=1 cue_group=1
+Cue Light Webserver 1.1.2 at 192.168.1.42
+```
+
+After mDNS discovers a peer:
+
+```
+Peer sync: peer added 192.168.1.43
+Peer sync: mDNS refresh, tracking 1 peer(s)
+```
+
+On button press (sending board):
+
+```
+Cue 1 -> GREEN
+Peer sync: pushed to 192.168.1.43
+```
+
+On receiving board:
+
+```
+Cue 1 -> GREEN (remote seq 3)
+```
+
+Background fallback poll (every 500 ms):
+
+```
 Peer sync: polled 192.168.1.43 OK
-Peer sync: applied cue 1 -> GREEN (seq 5) from 192.168.1.43
 ```
 
 Warnings:
 
 ```
-Warning: Peer sync unavailable until WiFi is connected.
+Peer sync unavailable until WiFi is connected.
+Warning: Peer sync unavailable.
 ```
 
-This is normal in AP-only mode. Boards work locally; sync starts after joining the LAN.
+Normal in AP-only mode. Boards work locally; sync starts after joining the LAN.
 
 ### Web dashboard
 
-Browse to `http://<board-ip>/` for live red/green indicators (polls `/api/cues` every second).
+Browse to `http://<board-ip>/` for live red/green indicators (polls `GET /api/cues` every second).
 
 ### API spot-check
 
@@ -82,10 +112,13 @@ Expected:
 | Cues work locally but never sync | System ID or Cue Group mismatch | Match values in `/setup` on all boards |
 | Cues work locally but never sync | WiFi client isolation | Disable isolation on the AP |
 | Cues work locally but never sync | Boards on different VLANs/subnets | Put all boards on the same L2 network |
-| Slow sync (3+ seconds) | Normal poll interval | Expected; lower `PEER_SYNC_POLL_INTERVAL_MS` in `config.h` if needed |
-| New board slow to join | mDNS discovery interval (30 s) | Wait one cycle or reboot after WiFi connect |
+| Slow sync (~500 ms+) | Push failing; fallback poll only | Check serial for `push failed`; verify board-to-board HTTP on port 80 |
+| Slow sync (~500 ms+) | No peers in table yet | Wait for mDNS (`peer added` in serial) or reboot both boards on WiFi |
+| New board slow to join | mDNS discovery interval (15 s) | Wait one cycle or reboot after WiFi connect |
 | `Peer sync unavailable` on boot | AP/captive-portal mode | Connect board to show WiFi |
-| mDNS browse finds nothing | mDNS blocked on network | Allow UDP 5353 multicast; use `curl` to known IP as fallback |
+| mDNS browse finds nothing on boards but laptop sees services | Old firmware (< v1.1.1) | Flash v1.1.2+; serial should show `peer added` |
+| mDNS blocked on network | AP or firewall blocks multicast | Allow UDP 5353; verify with `dns-sd -B _cuelight._tcp` from laptop |
+| `Peer sync: push failed` | Peer unreachable or HTTP blocked | Verify `curl http://<peer-ip>/api/cues` from laptop; check isolation |
 | More than 8 boards in one group | Peer table limit | Increase `PEER_SYNC_MAX_PEERS` in `config.h` |
 | `/api/cues` works, dashboard 404 | Missing LittleFS | Run LittleFS upload / full deploy |
 
@@ -109,6 +142,16 @@ You should see one entry per powered-on board on the LAN.
 
 From a laptop, curl each board IP. If laptops can reach all boards but boards cannot sync, suspect **client isolation** or a firewall blocking board-to-board traffic.
 
+Test push manually:
+
+```bash
+curl -X POST http://192.168.1.42/api/cues \
+  -H "Content-Type: application/json" \
+  -d '{"system_id":1,"cue_group":1,"cue1":1,"cue2":0,"seq1":10,"seq2":0}'
+```
+
+Expect `{"ok":1}` if sequences are newer than the board's current state.
+
 ---
 
 ## WiFi wipe (factory reset credentials)
@@ -119,14 +162,22 @@ Hold **Cue 1 button** for **3 seconds** at boot to wipe saved WiFi credentials. 
 
 ## Tuning sync speed
 
-Edit `config.h`:
+Defaults in `config.h` (v1.1.2):
 
 ```cpp
-#define PEER_SYNC_POLL_INTERVAL_MS 3000   // decrease for faster sync (e.g. 1500)
-#define PEER_SYNC_DISCOVERY_MS 30000      // decrease for faster peer discovery on join
+#define PEER_SYNC_POLL_INTERVAL_MS 500    // fallback GET poll (ms)
+#define PEER_SYNC_PUSH_TIMEOUT_MS 800     // POST push timeout (ms)
+#define PEER_SYNC_DISCOVERY_MS 15000      // mDNS peer-table refresh (ms)
+#define PEER_SYNC_HTTP_TIMEOUT_MS 1500    // GET poll timeout (ms)
 ```
 
-Rebuild and upload firmware after changes.
+Push latency is dominated by WiFi/HTTP RTT (~100–300 ms). Lower `PEER_SYNC_POLL_INTERVAL_MS` only affects fallback poll speed, not button-press push.
+
+Rebuild and upload firmware after changes:
+
+```bash
+make upload-both
+```
 
 ---
 

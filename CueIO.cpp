@@ -31,9 +31,9 @@ void CueIO::updateStatusLed() {
 
 void CueIO::begin() {
   _cues[0] = {CUE_NUMBER_1, PIN_BTN_CUE1, PIN_CUE1_RED, PIN_CUE1_GREEN,
-              CUE_STATE_RED, 0, HIGH, HIGH, 0};
+              CUE_STATE_RED, 0, false, false, false, 0, 0};
   _cues[1] = {CUE_NUMBER_2, PIN_BTN_CUE2, PIN_CUE2_RED, PIN_CUE2_GREEN,
-              CUE_STATE_RED, 0, HIGH, HIGH, 0};
+              CUE_STATE_RED, 0, false, false, false, 0, 0};
 
   for (auto& cue : _cues) {
     pinMode(cue.buttonPin, INPUT_PULLUP);
@@ -88,34 +88,55 @@ void CueIO::setCueState(uint8_t cueNumber, uint8_t state, bool sync) {
                   state ? PSTR("GREEN") : PSTR("RED"));
 
   if (sync) {
-    peerSync.requestSync();
+    peerSync.notifyLocalChange();
   }
 }
 
-void CueIO::pollButton(CueChannel& cue) {
-  const bool reading = digitalRead(cue.buttonPin) == LOW;
-
-  if (reading != cue.lastReadingLevel) {
-    cue.lastDebounceMs = millis();
-    cue.lastReadingLevel = reading;
-  }
-
-  if ((millis() - cue.lastDebounceMs) < BTN_DEBOUNCE_MS) {
+void CueIO::acceptButtonPress(CueChannel& cue) {
+  const unsigned long now = millis();
+  if ((now - cue.lastAcceptedMs) < BTN_LOCKOUT_MS) {
+    cue.pendingPress = false;
     return;
   }
 
-  if (reading == cue.lastStableLevel) {
-    return;
-  }
-
-  cue.lastStableLevel = reading;
-  if (!reading) {
-    return;
-  }
+  cue.lastAcceptedMs = now;
+  cue.pendingPress = false;
 
   const uint8_t nextState =
       cue.state == CUE_STATE_RED ? CUE_STATE_GREEN : CUE_STATE_RED;
   setCueState(cue.cueNumber, nextState, true);
+}
+
+void CueIO::pollButton(CueChannel& cue) {
+  const bool pressed = digitalRead(cue.buttonPin) == LOW;
+  const unsigned long now = millis();
+
+  if (pressed != cue.lastReadingLevel) {
+    cue.lastDebounceMs = now;
+    if (pressed) {
+      cue.pendingPress = true;
+    }
+    cue.lastReadingLevel = pressed;
+  }
+
+  if ((now - cue.lastDebounceMs) < BTN_DEBOUNCE_MS) {
+    return;
+  }
+
+  if (pressed == cue.lastStableLevel) {
+    return;
+  }
+
+  const bool wasStablePressed = cue.lastStableLevel;
+  cue.lastStableLevel = pressed;
+
+  if (pressed && !wasStablePressed) {
+    // Debounced press — toggle immediately for responsive lamps.
+    acceptButtonPress(cue);
+  } else if (!pressed && !wasStablePressed && cue.pendingPress) {
+    // Quick tap — released before debounce confirmed press.
+    acceptButtonPress(cue);
+  }
 }
 
 void CueIO::loop() {

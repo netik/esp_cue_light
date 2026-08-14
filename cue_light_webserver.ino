@@ -106,13 +106,36 @@ void onConfigSaved(const char* filename) {
 
 void handleCueStatus(AsyncWebServerRequest* request) {
   char json[128];
-  snprintf(json, sizeof(json),
-           "{\"system_id\":%u,\"cue_group\":%u,\"cue1\":%u,\"cue2\":%u,"
-           "\"seq1\":%u,\"seq2\":%u}",
-           systemId, cueGroup, cueIO.getCueState(CUE_NUMBER_1),
-           cueIO.getCueState(CUE_NUMBER_2), cueIO.getCueSeq(CUE_NUMBER_1),
-           cueIO.getCueSeq(CUE_NUMBER_2));
+  peerSync.buildStateJson(json, sizeof(json));
   request->send(200, "application/json", json);
+}
+
+void handleCuePush(AsyncWebServerRequest* request, uint8_t* data, size_t len,
+                   size_t index, size_t total) {
+  static char json[128];
+  if (total >= sizeof(json) || total == 0) {
+    request->send(413, "application/json", "{\"ok\":0}");
+    return;
+  }
+
+  if (index == 0) {
+    json[0] = '\0';
+  }
+
+  const size_t offset = min(index, sizeof(json) - 1);
+  const size_t copyLen = min(len, sizeof(json) - 1 - offset);
+  memcpy(json + offset, data, copyLen);
+  json[offset + copyLen] = '\0';
+
+  if (index + len < total) {
+    return;
+  }
+
+  if (peerSync.applyIncomingJson(json)) {
+    request->send(200, "application/json", "{\"ok\":1}");
+  } else {
+    request->send(409, "application/json", "{\"ok\":0}");
+  }
 }
 
 void setup() {
@@ -152,15 +175,18 @@ void setup() {
 
   cueIO.begin();
 
+  server.enableFsCodeEditor();
+  server.on("/api/cues", HTTP_GET, handleCueStatus);
+  server.on("/api/cues", HTTP_POST, [](AsyncWebServerRequest* request) {},
+            NULL, handleCuePush);
+
+  server.init();
+
   if (!peerSync.begin()) {
     Serial.print(F("Warning: Peer sync unavailable."));
     Serial.print(LINE_END);
   }
 
-  server.enableFsCodeEditor();
-  server.on("/api/cues", HTTP_GET, handleCueStatus);
-
-  server.init();
   Serial.printf_P(PSTR("\r\nCue Light Webserver %s at "), FIRMWARE_VERSION);
   Serial.print(server.getServerIP());
   Serial.print(LINE_END);
@@ -169,7 +195,7 @@ void setup() {
 }
 
 void loop() {
-  peerSync.loop();
   cueIO.loop();
-  delay(10);
+  peerSync.loop();
+  yield();
 }

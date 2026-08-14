@@ -4,7 +4,7 @@ Cue-light boards expose state over HTTP and discover each other with mDNS. There
 
 ## mDNS service record
 
-Each board advertises:
+Each board advertises (via LEAmDNS, after the web server starts):
 
 | Field | Value |
 |-------|-------|
@@ -33,17 +33,15 @@ ping CueLight-A1B2.local
 curl http://CueLight-A1B2.local/api/cues
 ```
 
-TXT records are informational. Peer sync validates `system_id` and `cue_group` from the HTTP response body.
+TXT records filter peers during mDNS discovery. All sync payloads are also validated against `system_id` and `cue_group` in the HTTP JSON body.
 
 ---
 
 ## HTTP API
 
-### `GET /api/cues`
+Both endpoints use the same JSON schema. State is built by `PeerSync::buildStateJson()` in firmware.
 
-Returns the current cue snapshot for this board.
-
-**Response** — `200 OK`, `Content-Type: application/json`
+### Shared JSON schema
 
 ```json
 {
@@ -81,9 +79,49 @@ Returns the current cue snapshot for this board.
 
 ---
 
-## Peer sync algorithm (reference)
+### `GET /api/cues`
 
-Pseudocode for one poll cycle:
+Returns the current cue snapshot for this board.
+
+**Response** — `200 OK`, `Content-Type: application/json`
+
+Used by:
+
+- Web dashboard (polls every 1 s)
+- Background peer sync fallback (one peer every 500 ms)
+- External monitoring scripts
+
+---
+
+### `POST /api/cues`
+
+Pushes a cue snapshot from a peer board. Used for **fast sync** when a local button is pressed.
+
+**Request** — `POST`, `Content-Type: application/json`, body = shared JSON schema above.
+
+**Responses**
+
+| Code | Body | Meaning |
+|------|------|---------|
+| `200` | `{"ok":1}` | At least one cue field applied (newer sequence) |
+| `409` | `{"ok":0}` | Ignored — stale sequence, parse error, or wrong system/group |
+| `413` | `{"ok":0}` | Body too large (max 127 bytes) |
+
+Remote apply via POST does not trigger a re-push (no sync loops).
+
+---
+
+## Peer sync algorithms (reference)
+
+### Push (on local button press)
+
+```
+json = build_state_json()
+for peer in known_peers:
+    HTTP_POST(peer, "/api/cues", json)
+```
+
+### Poll fallback (every 500 ms, one peer per loop)
 
 ```
 response = HTTP_GET(peer, "/api/cues")
@@ -96,6 +134,8 @@ if is_newer(response.seq1, my.seq1):
 if is_newer(response.seq2, my.seq2):
     apply cue2 = response.cue2, seq2 = response.seq2
 ```
+
+Both paths call the same `parseAndApply()` logic in firmware.
 
 ---
 
@@ -113,6 +153,34 @@ with urllib.request.urlopen(f"http://{host}/api/cues", timeout=2) as resp:
     print(f"Cue 1: {'GREEN' if data['cue1'] else 'RED'} (seq {data['seq1']})")
     print(f"Cue 2: {'GREEN' if data['cue2'] else 'RED'} (seq {data['seq2']})")
 ```
+
+### Push state (Python — same endpoint peers use)
+
+```python
+import urllib.request
+import json
+
+host = "192.168.1.42"
+payload = {
+    "system_id": 1,
+    "cue_group": 1,
+    "cue1": 1,
+    "cue2": 0,
+    "seq1": 99,
+    "seq2": 0,
+}
+body = json.dumps(payload).encode("utf-8")
+req = urllib.request.Request(
+    f"http://{host}/api/cues",
+    data=body,
+    method="POST",
+    headers={"Content-Type": "application/json"},
+)
+with urllib.request.urlopen(req, timeout=2) as resp:
+    print(resp.status, resp.read().decode())
+```
+
+The board applies the update only if sequences are newer than local state and system/group match. Increment `seq` values carefully to avoid stale rejects.
 
 ### Monitor all boards on the LAN (Python + zeroconf)
 
@@ -132,19 +200,17 @@ input("Press Enter to exit...\n")
 zeroconf.close()
 ```
 
-There is **no write API** over HTTP in firmware today. Cue changes originate from physical buttons on any board and propagate via peer sync. A future `POST /api/cues` could be added for external control if needed.
-
 ---
 
 ## Removed: UDP port 45271
 
-Firmware prior to v1.1.0 broadcast cue changes on UDP port **45271**. That transport has been **removed**. External tools should use `GET /api/cues` instead.
+Firmware prior to v1.1.0 broadcast cue changes on UDP port **45271**. That transport has been **removed**. External tools should use `GET /api/cues` (read) or `POST /api/cues` (write, same rules as peer sync).
 
 ---
 
 ## Firewall and WiFi notes
 
-- Allow **TCP port 80** between boards on the LAN.
+- Allow **TCP port 80** between boards on the LAN (GET and POST).
 - Allow **mDNS** (UDP port 5353, multicast `224.0.0.251`) for discovery.
 - Disable **AP/client isolation** on the WiFi access point so stations can reach each other.
 
