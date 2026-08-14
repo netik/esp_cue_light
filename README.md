@@ -1,8 +1,10 @@
 # Cue Light Webserver
 
-ESP8266 (NodeMCU v2) firmware for a two-cue light controller with a built-in web UI, WiFi setup portal, and UDP sync between devices and laptops on the same LAN.
+ESP8266 (NodeMCU v2) firmware for a two-cue light controller with a built-in web UI, WiFi setup portal, and **peer sync** between devices on the same LAN.
 
-Physical buttons toggle cue states locally and broadcast changes to other nodes on the same **System ID** and **Cue Group**.
+Physical buttons toggle cue states locally; changes propagate to other boards via **mDNS discovery + HTTP polling** (no leader, no broker). See **[docs/](./docs/)** for full architecture and protocol details.
+
+Boards sync only when they share the same **System ID** and **Cue Group**.
 
 ## Hardware
 
@@ -38,30 +40,36 @@ Required libraries:
 
 ### VS Code / Cursor tasks
 
+Board ports are set in `.vscode/settings.json`:
+
+| Board | Port |
+|-------|------|
+| **0001** | `/dev/cu.usbserial-0001` |
+| **83430** | `/dev/cu.usbserial-83430` |
+
 | Task | What it does |
 |------|----------------|
-| **Arduino: Compile (ESP8266)** | Build firmware |
-| **Arduino: Upload (ESP8266)** | Upload firmware |
-| **Arduino: Upload LittleFS** | Upload `data/` to flash; preserves `/setup` config by default |
-| **Arduino: Full Deploy (sketch + filesystem)** | Upload firmware, then LittleFS |
-| **Arduino: Serial Monitor** | 115200 baud debug output |
-
-Set your serial port in `.vscode/settings.json` (`cueLight.port`).
+| **Arduino: Compile (ESP8266)** | Build firmware (shared) |
+| **Arduino: Upload firmware → Board 0001 / 83430** | Compile + upload to one board |
+| **Arduino: Upload firmware → Both Boards** | Compile once, upload to both |
+| **Arduino: Upload LittleFS → Board 0001 / 83430** | Upload `data/` to one board |
+| **Arduino: Full Deploy → Board 0001 / 83430 / Both Boards** | Firmware + LittleFS |
+| **Arduino: Serial Monitor → Board 0001 / 83430** | 115200 baud debug output |
 
 ### Command line
 
 ```bash
-# Compile
-arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2:eesz=4M2M,ip=lm2n .
+# Per-board deploy
+make deploy-board1    # /dev/cu.usbserial-0001
+make deploy-board2    # /dev/cu.usbserial-83430
+make deploy-both
 
-# Upload firmware
-arduino-cli upload --fqbn esp8266:esp8266:nodemcuv2:eesz=4M2M,ip=lm2n -p /dev/cu.usbserial-0001 .
+# Or override a single port
+make upload PORT=/dev/cu.usbserial-0001
+make littlefs PORT=/dev/cu.usbserial-83430
 
-# Upload LittleFS (required for index.htm dashboard)
-./scripts/upload-littlefs.sh /dev/cu.usbserial-0001
-
-# Force a clean filesystem (wipes saved WiFi / setup options)
-./scripts/upload-littlefs.sh --fresh /dev/cu.usbserial-0001
+# Compile only
+make compile
 ```
 
 **Important:** Uploading firmware alone does **not** install `data/index.htm`. Run **Upload LittleFS** (or **Full Deploy**) at least once so the status page is available at `/`.
@@ -113,10 +121,11 @@ Replace `{host}` with the device IP (station mode) or `192.168.4.1` (AP mode). A
 **`/api/cues` response example:**
 
 ```json
-{"system_id":1,"cue_group":1,"cue1":0,"cue2":1}
+{"system_id":1,"cue_group":1,"cue1":0,"cue2":1,"seq1":3,"seq2":7}
 ```
 
 - `cue1` / `cue2`: `0` = RED, `1` = GREEN
+- `seq1` / `seq2`: per-cue sequence numbers used for peer sync (see [docs/network-protocol.md](./docs/network-protocol.md))
 
 ### WiFi and configuration (AsyncEspFsWebserver)
 
@@ -155,66 +164,31 @@ Yes. The dashboard is embedded in firmware (`DashboardHtml.h`) and **automatical
 
 You can still upload `data/index.htm` via **Upload LittleFS** to update the on-flash copy without reflashing firmware. The upload script always merges `data/` into the image and preserves runtime files (`/setup/`, `credentials.bin`).
 
-## UDP messaging
+## Peer sync (board-to-board)
 
-When a cue changes (button press or remote command), the device sends a **UDP broadcast** on port **45271** (`CUE_UDP_PORT` in `config.h`) to the subnet broadcast address (e.g. `192.168.1.255`).
+Boards discover each other with **mDNS** (`_cuelight._tcp`) and poll `GET /api/cues` on peers every few seconds. There is no UDP broadcast and no central broker.
 
-Payload (JSON + CRLF):
+| Topic | Document |
+|-------|----------|
+| Architecture and design rationale | [docs/peer-sync-architecture.md](./docs/peer-sync-architecture.md) |
+| HTTP API and mDNS records | [docs/network-protocol.md](./docs/network-protocol.md) |
+| Deployment and troubleshooting | [docs/operations-guide.md](./docs/operations-guide.md) |
 
-```json
-{"system_id":1,"cue_group":1,"cue":1,"state":0}
-```
+### Quick integration example
 
-- `state`: `0` = RED, `1` = GREEN
-- Incoming messages are applied only when `system_id` and `cue_group` match this node's configured values
-- Packets from this device's own IP are ignored
-
-### Why broadcast, not multicast?
-
-**Broadcast** is used because it is simple for laptops and scripts (bind to the port, enable `SO_BROADCAST` to send) and shows up directly in Wireshark. **Multicast** is better for large routed networks, but many WiFi access points handle it poorly without IGMP snooping configuration.
-
-### Wireshark
-
-```
-udp.port == 45271
-```
-
-### Laptop listener example (Python)
-
-```python
-import socket
-
-PORT = 45271
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-sock.bind(("", PORT))
-
-while True:
-    data, addr = sock.recvfrom(1024)
-    print(addr, data.decode("utf-8", errors="replace").strip())
-```
-
-### Sending from a laptop
-
-Use your LAN broadcast address (not always `255.255.255.255`):
-
-```python
-import socket
-
-PORT = 45271
-msg = b'{"system_id":1,"cue_group":1,"cue":1,"state":1}\r\n'
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-sock.sendto(msg, ("192.168.1.255", PORT))  # replace with your subnet broadcast
+```bash
+curl http://192.168.1.42/api/cues
+dns-sd -B _cuelight._tcp    # macOS: browse for boards
 ```
 
 ## Project layout
 
 ```
 cue_light_webserver.ino   Main sketch (web server, WiFi, API route)
-config.h                  Pins, defaults, firmware version
-CueIO.*                   Buttons and lamp outputs
-UdpCue.*                  UDP broadcast send/receive
+config.h                  Pins, defaults, sync timing
+CueIO.*                   Buttons, lamp outputs, sequence numbers
+PeerSync.*                mDNS discovery and HTTP peer polling
+docs/                     Architecture, protocol, operations guides
 data/index.htm            Status dashboard (uploaded to LittleFS)
 scripts/
   setup-libraries.sh      Install cores and libraries
@@ -229,5 +203,5 @@ scripts/
 | WiFi / options reset after LittleFS upload | Use the default upload script (preserves `/setup`). Avoid `--fresh` unless intentional. |
 | `/api/cues` works but `/index.htm` 404 | Filesystem empty or wrong partition layout. Re-run `./scripts/upload-littlefs.sh`. |
 | Cannot join WiFi after config | Use AP mode again; check `/setup` credentials. AP password is always `123456789`. |
-| Cues do not sync between devices | Match **System ID** and **Cue Group**; all devices must be on the same WiFi/LAN. Check AP client isolation is off. |
-| UDP cue sync warning on boot | WiFi not connected yet (common in AP-only mode). Reconnect to your LAN. Device still works locally via buttons. |
+| Cues do not sync between devices | Match **System ID** and **Cue Group**; all devices must be on the same WiFi/LAN. Check AP client isolation is off. See [docs/operations-guide.md](./docs/operations-guide.md). |
+| Peer sync warning on boot | WiFi not connected yet (common in AP-only mode). Reconnect to your LAN. Device still works locally via buttons. |

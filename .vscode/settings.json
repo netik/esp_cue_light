@@ -15,6 +15,9 @@
     "*.ino": "cpp"
   },
   "cueLight.fqbn": "esp8266:esp8266:nodemcuv2:eesz=4M2M,ip=lm2n",
-  "cueLight.port": "/dev/cu.usbserial-0001",
-  "cueLight.baud": "115200"
+  "cueLight.baud": "115200",
+  "cueLight.board1.port": "/dev/cu.usbserial-0001",
+  "cueLight.board1.name": "0001",
+  "cueLight.board2.port": "/dev/cu.usbserial-83430",
+  "cueLight.board2.name": "83430"
 }

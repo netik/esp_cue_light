@@ -6,7 +6,7 @@
 
 #include "CueIO.h"
 #include "DashboardHtml.h"
-#include "UdpCue.h"
+#include "PeerSync.h"
 #include "config.h"
 
 #define FILESYSTEM LittleFS
@@ -14,6 +14,54 @@ AsyncFsWebServer server(FILESYSTEM, 80);
 
 uint16_t systemId = DEFAULT_SYSTEM_ID;
 uint16_t cueGroup = DEFAULT_CUE_GROUP;
+
+bool cue1ButtonPressed() {
+  return digitalRead(PIN_BTN_CUE1) == LOW;
+}
+
+bool waitForWifiWipeHold() {
+  pinMode(PIN_BTN_CUE1, INPUT_PULLUP);
+  if (!cue1ButtonPressed()) {
+    return false;
+  }
+
+  Serial.printf_P(PSTR("Cue 1 held at boot: keep pressed %u seconds to wipe WiFi...\r\n"),
+                  (unsigned)(WIFI_WIPE_HOLD_MS / 1000));
+
+  pinMode(PIN_STATUS_LED, OUTPUT);
+  const unsigned long deadline = millis() + WIFI_WIPE_HOLD_MS;
+  while (millis() < deadline) {
+    if (!cue1ButtonPressed()) {
+      Serial.print(F("WiFi wipe cancelled."));
+      Serial.print(LINE_END);
+      digitalWrite(PIN_STATUS_LED, HIGH);
+      return false;
+    }
+
+    digitalWrite(PIN_STATUS_LED, ((millis() / 200) % 2) ? LOW : HIGH);
+    delay(50);
+  }
+
+  digitalWrite(PIN_STATUS_LED, HIGH);
+  return true;
+}
+
+void wipeWifiConfig() {
+  if (FILESYSTEM.exists(WIFI_CREDENTIALS_FILE)) {
+    FILESYSTEM.remove(WIFI_CREDENTIALS_FILE);
+  }
+
+  WiFi.persistent(false);
+  WiFi.disconnect(true);
+  WiFi.persistent(true);
+
+  Serial.print(F("WiFi credentials wiped. Device will start AP /setup on next boot."));
+  Serial.print(LINE_END);
+
+  while (cue1ButtonPressed()) {
+    delay(10);
+  }
+}
 
 void buildApSsid(char* ssid, size_t size) {
   WiFi.mode(WIFI_STA);
@@ -27,9 +75,9 @@ void loadNetworkConfig() {
     server.getOptionValue("System ID", systemId);
     server.getOptionValue("Cue Group", cueGroup);
   }
-  udpCue.setNetworkFilter(systemId, cueGroup);
-  Serial.printf_P(PSTR("\r\n\r\nUDP: Network filter: system_id=%u cue_group=%u port=%u\r\n"),
-                  systemId, cueGroup, CUE_UDP_PORT);
+  peerSync.setNetworkFilter(systemId, cueGroup);
+  Serial.printf_P(PSTR("\r\n\r\nPeer sync filter: system_id=%u cue_group=%u\r\n"),
+                  systemId, cueGroup);
 }
 
 void ensureDashboardOnFs() {
@@ -57,21 +105,30 @@ void onConfigSaved(const char* filename) {
 }
 
 void handleCueStatus(AsyncWebServerRequest* request) {
-  char json[96];
+  char json[128];
   snprintf(json, sizeof(json),
-           "{\"system_id\":%u,\"cue_group\":%u,\"cue1\":%u,\"cue2\":%u}",
+           "{\"system_id\":%u,\"cue_group\":%u,\"cue1\":%u,\"cue2\":%u,"
+           "\"seq1\":%u,\"seq2\":%u}",
            systemId, cueGroup, cueIO.getCueState(CUE_NUMBER_1),
-           cueIO.getCueState(CUE_NUMBER_2));
+           cueIO.getCueState(CUE_NUMBER_2), cueIO.getCueSeq(CUE_NUMBER_1),
+           cueIO.getCueSeq(CUE_NUMBER_2));
   request->send(200, "application/json", json);
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(100);
+
+  const bool wipeWifi = waitForWifiWipeHold();
 
   if (!FILESYSTEM.begin()) {
     Serial.print(F("ERROR mounting filesystem."));
     Serial.print(LINE_END);
     ESP.restart();
+  }
+
+  if (wipeWifi) {
+    wipeWifiConfig();
   }
 
   ensureDashboardOnFs();
@@ -95,8 +152,8 @@ void setup() {
 
   cueIO.begin();
 
-  if (!udpCue.begin()) {
-    Serial.print(F("Warning: UDP cue sync unavailable."));
+  if (!peerSync.begin()) {
+    Serial.print(F("Warning: Peer sync unavailable."));
     Serial.print(LINE_END);
   }
 
@@ -112,7 +169,7 @@ void setup() {
 }
 
 void loop() {
-  udpCue.loop();
+  peerSync.loop();
   cueIO.loop();
   delay(10);
 }

@@ -1,13 +1,5 @@
 {
   "version": "2.0.0",
-  "inputs": [
-    {
-      "id": "serialPort",
-      "type": "promptString",
-      "description": "Serial port (e.g. /dev/cu.usbserial-0001)",
-      "default": "/dev/cu.usbserial-0001"
-    }
-  ],
   "tasks": [
     {
       "label": "Arduino: List Boards",
@@ -53,7 +45,7 @@
       }
     },
     {
-      "label": "Arduino: Upload (ESP8266)",
+      "label": "Arduino: Upload firmware → Board 0001",
       "type": "shell",
       "command": "/Users/jna/bin/arduino-cli",
       "args": [
@@ -61,7 +53,7 @@
         "--fqbn",
         "${config:cueLight.fqbn}",
         "--port",
-        "${config:cueLight.port}",
+        "${config:cueLight.board1.port}",
         "${workspaceFolder}"
       ],
       "dependsOn": ["Arduino: Compile (ESP8266)"],
@@ -73,17 +65,18 @@
       "problemMatcher": []
     },
     {
-      "label": "Arduino: Compile + Upload (ESP8266)",
-      "dependsOn": ["Arduino: Upload (ESP8266)"],
-      "dependsOrder": "sequence",
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Arduino: Upload LittleFS",
+      "label": "Arduino: Upload firmware → Board 83430",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/upload-littlefs.sh",
-      "args": ["${config:cueLight.port}"],
+      "command": "/Users/jna/bin/arduino-cli",
+      "args": [
+        "upload",
+        "--fqbn",
+        "${config:cueLight.fqbn}",
+        "--port",
+        "${config:cueLight.board2.port}",
+        "${workspaceFolder}"
+      ],
+      "dependsOn": ["Arduino: Compile (ESP8266)"],
       "group": "build",
       "presentation": {
         "reveal": "always",
@@ -92,13 +85,102 @@
       "problemMatcher": []
     },
     {
-      "label": "Arduino: Serial Monitor",
+      "label": "Arduino: Upload firmware → Both Boards",
+      "type": "shell",
+      "command": "make",
+      "args": ["upload-both"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Upload LittleFS → Board 0001",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/upload-littlefs.sh",
+      "args": ["--port", "${config:cueLight.board1.port}"],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Upload LittleFS → Board 83430",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/upload-littlefs.sh",
+      "args": ["--port", "${config:cueLight.board2.port}"],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Upload LittleFS → Both Boards",
+      "type": "shell",
+      "command": "make",
+      "args": ["littlefs-both"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Full Deploy → Board 0001",
+      "dependsOn": [
+        "Arduino: Upload firmware → Board 0001",
+        "Arduino: Upload LittleFS → Board 0001"
+      ],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Full Deploy → Board 83430",
+      "dependsOn": [
+        "Arduino: Upload firmware → Board 83430",
+        "Arduino: Upload LittleFS → Board 83430"
+      ],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Full Deploy → Both Boards",
+      "type": "shell",
+      "command": "make",
+      "args": ["deploy-both"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Serial Monitor → Board 0001",
       "type": "shell",
       "command": "/Users/jna/bin/arduino-cli",
       "args": [
         "monitor",
         "--port",
-        "${config:cueLight.port}",
+        "${config:cueLight.board1.port}",
         "--config",
         "baudrate=${config:cueLight.baud}"
       ],
@@ -110,13 +192,21 @@
       "problemMatcher": []
     },
     {
-      "label": "Arduino: Full Deploy (sketch + filesystem)",
-      "dependsOn": [
-        "Arduino: Upload (ESP8266)",
-        "Arduino: Upload LittleFS"
+      "label": "Arduino: Serial Monitor → Board 83430",
+      "type": "shell",
+      "command": "/Users/jna/bin/arduino-cli",
+      "args": [
+        "monitor",
+        "--port",
+        "${config:cueLight.board2.port}",
+        "--config",
+        "baudrate=${config:cueLight.baud}"
       ],
-      "dependsOrder": "sequence",
-      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
       "problemMatcher": []
     }
   ]

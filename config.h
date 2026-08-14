@@ -1,6 +1,6 @@
 #pragma once
 
-#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_VERSION "1.1.0"
 
 // NodeMCU pin labels in comments — change GPIO numbers here to rewire.
 #define PIN_BTN_CUE1 5   // D1
@@ -10,6 +10,12 @@
 #define PIN_CUE1_GREEN 12  // D6
 #define PIN_CUE2_RED 13    // D7
 #define PIN_CUE2_GREEN 15  // D8
+
+#ifndef LED_BUILTIN
+#define PIN_STATUS_LED 2  // NodeMCU onboard LED (D4), active LOW
+#else
+#define PIN_STATUS_LED LED_BUILTIN
+#endif
 
 #define CUE_COUNT 2
 #define CUE_NUMBER_1 1
@@ -21,11 +27,21 @@
 #define DEFAULT_SYSTEM_ID 1
 #define DEFAULT_CUE_GROUP 1
 
-#define CUE_UDP_PORT 45271
+#define CUE_MDNS_SERVICE "cuelight"
+#define CUE_HTTP_PORT 80
+
+#define PEER_SYNC_MAX_PEERS 8
+#define PEER_SYNC_POLL_INTERVAL_MS 3000
+#define PEER_SYNC_DISCOVERY_MS 30000
+#define PEER_SYNC_HTTP_TIMEOUT_MS 2000
+#define PEER_SYNC_PEER_STALE_MS 120000
 
 #define BTN_DEBOUNCE_MS 50
 
+#define AP_PASSWORD "123456789"
+
+#define WIFI_CREDENTIALS_FILE "/credentials.bin"
+#define WIFI_WIPE_HOLD_MS 3000
+
 #define LINE_END "\r\n"
 #define LINE_END_LEN 2
-
-#define AP_PASSWORD "123456789"
