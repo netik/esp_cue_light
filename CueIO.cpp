@@ -39,9 +39,9 @@ void CueIO::updateStatusLed() {
 
 void CueIO::begin() {
   _cues[0] = {CUE_NUMBER_1, PIN_BTN_CUE1, PIN_CUE1_RED, PIN_CUE1_GREEN,
-              CUE_STATE_RED, 0, false, 0};
+              CUE_STATE_RED, 0, false, true, 0, 0};
   _cues[1] = {CUE_NUMBER_2, PIN_BTN_CUE2, PIN_CUE2_RED, PIN_CUE2_GREEN,
-              CUE_STATE_RED, 0, false, 0};
+              CUE_STATE_RED, 0, false, true, 0, 0};
 
   for (auto& cue : _cues) {
     pinMode(cue.buttonPin, INPUT_PULLUP);
@@ -105,11 +105,20 @@ void CueIO::setCueState(uint8_t cueNumber, uint8_t state, bool sync) {
 }
 
 bool CueIO::acceptButtonPress(CueChannel& cue) {
+  if (!cue.armed) {
+    return false;
+  }
+
+  if (digitalRead(cue.buttonPin) != LOW) {
+    return false;
+  }
+
   const unsigned long now = millis();
   if ((now - cue.lastAcceptedMs) < BTN_LOCKOUT_MS) {
     return false;
   }
 
+  cue.armed = false;
   cue.lastAcceptedMs = now;
 
   const uint8_t nextState =
@@ -136,15 +145,24 @@ void CueIO::processPendingButtons() {
 
 void CueIO::pollButton(CueChannel& cue) {
   const bool pressed = digitalRead(cue.buttonPin) == LOW;
-  if (pressed && !cue.lastReadingLevel) {
-    acceptButtonPress(cue);
+  const unsigned long now = millis();
+
+  if (pressed) {
+    cue.releaseMs = 0;
+  } else if (cue.lastReadingLevel) {
+    cue.releaseMs = now;
+  } else if (cue.releaseMs != 0 &&
+             (now - cue.releaseMs) >= BTN_RELEASE_ARM_MS) {
+    cue.armed = true;
+    cue.releaseMs = 0;
   }
+
   cue.lastReadingLevel = pressed;
 }
 
 void CueIO::loop() {
-  processPendingButtons();
   for (auto& cue : _cues) {
     pollButton(cue);
   }
+  processPendingButtons();
 }

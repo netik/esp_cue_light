@@ -8,13 +8,13 @@
 PeerSync peerSync;
 
 namespace {
-const char* fieldValue(const char* json, const char* key) {
-  char pattern[20];
-  snprintf(pattern, sizeof(pattern), "\"%s\":", key);
-  const char* start = strstr(json, pattern);
-  if (start == nullptr) {
-    return nullptr;
-  }
+  const char* fieldValue(const char* json, const char* key) {
+    char pattern[20];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char* start = strstr(json, pattern);
+    if (start == nullptr) {
+      return nullptr;
+    }
   return start + strlen(pattern);
 }
 
@@ -179,6 +179,10 @@ void PeerSync::markLocalChange() {
   _suppressPollUntilMs = millis() + PEER_SYNC_POLL_SUPPRESS_MS;
 }
 
+void PeerSync::markInboundApply() {
+  _suppressPollUntilMs = millis() + PEER_SYNC_POLL_SUPPRESS_MS;
+}
+
 void PeerSync::notifyLocalChange() {
   if (!_ready) {
     return;
@@ -251,20 +255,22 @@ bool PeerSync::processPendingPush() {
       continue;
     }
 
+    buildStateJson(_pushJson, sizeof(_pushJson));
+
     if (pushToPeer(peer, _pushJson)) {
       peer.lastSeenMs = millis();
       char ipStr[16];
       formatIp(ipStr, sizeof(ipStr), peer.ip);
       Serial.printf_P(PSTR("Peer sync: pushed to %s\r\n"), ipStr);
+      --_pushRemaining;
     } else {
       char ipStr[16];
       formatIp(ipStr, sizeof(ipStr), peer.ip);
-      Serial.printf_P(PSTR("Peer sync: push failed %s\r\n"), ipStr);
+      Serial.printf_P(PSTR("Peer sync: push failed %s (will retry)\r\n"), ipStr);
     }
 
     cueIO.loop();
 
-    --_pushRemaining;
     if (_pushRemaining == 0) {
       _pushPending = false;
       markLocalChange();
@@ -363,9 +369,8 @@ void PeerSync::processMdnsEvents() {
   for (uint8_t i = 0; i < count; ++i) {
     if (events[i].added) {
       touchPeer(events[i].ip);
-    } else {
-      removePeer(events[i].ip);
     }
+    // Ignore mDNS goodbye — transient flaps were removing active peers.
   }
 }
 
@@ -434,7 +439,7 @@ void PeerSync::expireStalePeers() {
 }
 
 bool PeerSync::parseAndApply(const char* json, ApplySource source) {
-  if (source == ApplySource::Poll && millis() < _suppressPollUntilMs) {
+  if (source == ApplySource::Poll) {
     return false;
   }
 
@@ -458,16 +463,22 @@ bool PeerSync::parseAndApply(const char* json, ApplySource source) {
     return false;
   }
 
+  const uint32_t localSeq1 = cueIO.getCueSeq(CUE_NUMBER_1);
+  const uint32_t localSeq2 = cueIO.getCueSeq(CUE_NUMBER_2);
   bool applied = false;
 
-  if (isSeqNewer(seq1, cueIO.getCueSeq(CUE_NUMBER_1))) {
+  if (isSeqNewer(seq1, localSeq1)) {
     cueIO.applyRemoteCueState(CUE_NUMBER_1, (uint8_t)cue1, seq1);
     applied = true;
   }
 
-  if (isSeqNewer(seq2, cueIO.getCueSeq(CUE_NUMBER_2))) {
+  if (isSeqNewer(seq2, localSeq2)) {
     cueIO.applyRemoteCueState(CUE_NUMBER_2, (uint8_t)cue2, seq2);
     applied = true;
+  }
+
+  if (applied) {
+    markInboundApply();
   }
 
   return applied;
@@ -488,30 +499,18 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
   }
 
   const int code = http.GET();
+  http.end();
+
   if (code != HTTP_CODE_OK) {
     char ipStr[16];
     formatIp(ipStr, sizeof(ipStr), peer.ip);
     Serial.printf_P(PSTR("Peer sync: HTTP %d from %s\r\n"), code, ipStr);
-    http.end();
     return false;
   }
 
-  char buffer[160];
-  const size_t len =
-      http.getStreamPtr()->readBytes(buffer, sizeof(buffer) - 1);
-  http.end();
-
-  if (len == 0) {
-    return false;
-  }
-
-  buffer[len] = '\0';
-
-  const bool applied = parseAndApply(buffer, ApplySource::Poll);
   char ipStr[16];
   formatIp(ipStr, sizeof(ipStr), peer.ip);
-  Serial.printf_P(PSTR("Peer sync: polled %s %s\r\n"), ipStr,
-                  applied ? PSTR("applied") : PSTR("OK"));
+  Serial.printf_P(PSTR("Peer sync: polled %s OK\r\n"), ipStr);
   return true;
 }
 

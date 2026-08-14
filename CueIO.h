@@ -22,6 +22,8 @@ private:
     uint8_t state;
     uint32_t seq;
     bool lastReadingLevel;
+    bool armed;
+    unsigned long releaseMs;
     unsigned long lastAcceptedMs;
   };
 

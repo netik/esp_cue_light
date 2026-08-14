@@ -53,6 +53,7 @@ private:
   void updateServiceTxt();
   void schedulePush();
   void markLocalChange();
+  void markInboundApply();
   void queueMdnsEvent(IPAddress ip, bool added);
   void processMdnsEvents();
   void refreshPeersFromMdns();
