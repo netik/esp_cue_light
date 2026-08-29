@@ -71,7 +71,7 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 | `PEER_SYNC_PUSH_TIMEOUT_MS` | 800 | HTTP POST timeout when pushing to peers |
 | `PEER_SYNC_DISCOVERY_MS` | 15000 | mDNS peer-table refresh interval |
 | `PEER_SYNC_HTTP_TIMEOUT_MS` | 1500 | HTTP GET timeout per peer poll |
-| `PEER_SYNC_PEER_STALE_MS` | 120000 | Drop unseen peers after this |
+| `PEER_SYNC_PEER_STALE_MS` | 30000 | Drop unseen peers after this |
 | `PEER_SYNC_MAX_PEERS` | 8 | Max tracked peers per board |
 
 ---

@@ -11,6 +11,9 @@ arduino-cli core install esp8266:esp8266
 echo "Ensuring project libraries are installed..."
 arduino-cli lib install "AsyncEspFsWebserver" "ESPAsyncTCP"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "${SCRIPT_DIR}/patch-asyncespfswebserver.sh"
+
 if [[ -d "${ESP_ASYNC_DIR}/.git" ]]; then
   origin="$(git -C "${ESP_ASYNC_DIR}" remote get-url origin 2>/dev/null || true)"
   if [[ "${origin}" == *"ESP32Async/ESPAsyncWebServer"* ]]; then

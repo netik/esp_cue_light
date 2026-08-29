@@ -113,10 +113,28 @@ void handleCueStatus(AsyncWebServerRequest* request) {
 namespace {
 struct CuePushBody {
   AsyncWebServerRequest* request = nullptr;
+  unsigned long startedMs = 0;
   char json[128];
 };
 
 CuePushBody g_cuePushBody;
+
+void resetCuePushBodyForRequest(AsyncWebServerRequest* request) {
+  if (g_cuePushBody.request == request) {
+    g_cuePushBody.request = nullptr;
+    g_cuePushBody.startedMs = 0;
+    g_cuePushBody.json[0] = '\0';
+  }
+}
+
+void checkCuePushBodyTimeout() {
+  if (g_cuePushBody.request == nullptr) {
+    return;
+  }
+  if ((millis() - g_cuePushBody.startedMs) >= CUE_PUSH_BODY_TIMEOUT_MS) {
+    resetCuePushBodyForRequest(g_cuePushBody.request);
+  }
+}
 }  // namespace
 
 void handleCuePush(AsyncWebServerRequest* request, uint8_t* data, size_t len,
@@ -132,7 +150,9 @@ void handleCuePush(AsyncWebServerRequest* request, uint8_t* data, size_t len,
       return;
     }
     g_cuePushBody.request = request;
+    g_cuePushBody.startedMs = millis();
     g_cuePushBody.json[0] = '\0';
+    request->onDisconnect([request]() { resetCuePushBodyForRequest(request); });
   }
 
   if (g_cuePushBody.request != request) {
@@ -148,9 +168,10 @@ void handleCuePush(AsyncWebServerRequest* request, uint8_t* data, size_t len,
     return;
   }
 
-  g_cuePushBody.request = nullptr;
+  const bool applied = peerSync.applyIncomingJson(g_cuePushBody.json);
+  resetCuePushBodyForRequest(request);
 
-  if (peerSync.applyIncomingJson(g_cuePushBody.json)) {
+  if (applied) {
     request->send(200, "application/json", "{\"ok\":1}");
   } else {
     request->send(409, "application/json", "{\"ok\":0}");
@@ -196,7 +217,6 @@ void setup() {
 
   cueIO.begin();
 
-  server.enableFsCodeEditor();
   server.on("/api/cues", HTTP_GET, handleCueStatus);
   server.on("/api/cues", HTTP_POST, [](AsyncWebServerRequest* request) {},
             NULL, handleCuePush);
@@ -217,6 +237,7 @@ void setup() {
 
 void loop() {
   cueIO.loop();
+  checkCuePushBodyTimeout();
   peerSync.loop();
   yield();
 }

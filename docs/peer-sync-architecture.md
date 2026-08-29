@@ -199,7 +199,7 @@ Tune in `config.h`:
 | `PEER_SYNC_POLL_INTERVAL_MS` | 500 | Background GET poll interval (fallback) |
 | `PEER_SYNC_DISCOVERY_MS` | 15000 | How often mDNS peer table is refreshed |
 | `PEER_SYNC_HTTP_TIMEOUT_MS` | 1500 | HTTP GET timeout per peer poll |
-| `PEER_SYNC_PEER_STALE_MS` | 120000 | Remove unseen peers after this duration |
+| `PEER_SYNC_PEER_STALE_MS` | 30000 | Remove unseen peers after this duration |
 | `PEER_SYNC_MAX_PEERS` | 8 | Max tracked peers |
 
 Lower poll interval = faster fallback sync, more WiFi traffic. Push latency is dominated by HTTP RTT, not the poll interval.

@@ -439,9 +439,7 @@ void PeerSync::expireStalePeers() {
 }
 
 bool PeerSync::parseAndApply(const char* json, ApplySource source) {
-  if (source == ApplySource::Poll) {
-    return false;
-  }
+  (void)source;
 
   uint32_t systemId = 0;
   uint32_t cueGroup = 0;
@@ -499,18 +497,43 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
   }
 
   const int code = http.GET();
-  http.end();
 
   if (code != HTTP_CODE_OK) {
     char ipStr[16];
     formatIp(ipStr, sizeof(ipStr), peer.ip);
     Serial.printf_P(PSTR("Peer sync: HTTP %d from %s\r\n"), code, ipStr);
+    http.end();
     return false;
   }
 
+  char json[128];
+  WiFiClient* stream = http.getStreamPtr();
+  if (stream == nullptr) {
+    http.end();
+    return false;
+  }
+
+  const size_t maxRead = sizeof(json) - 1;
+  const size_t n = stream->readBytes(json, maxRead);
+  json[n] = '\0';
+  const bool oversized = (n == maxRead && stream->available() > 0);
+  http.end();
+
+  if (n == 0 || oversized) {
+    char ipStr[16];
+    formatIp(ipStr, sizeof(ipStr), peer.ip);
+    Serial.printf_P(PSTR("Peer sync: empty/oversized response from %s\r\n"), ipStr);
+    return false;
+  }
+  const bool applied = parseAndApply(json, ApplySource::Poll);
+
   char ipStr[16];
   formatIp(ipStr, sizeof(ipStr), peer.ip);
-  Serial.printf_P(PSTR("Peer sync: polled %s OK\r\n"), ipStr);
+  if (applied) {
+    Serial.printf_P(PSTR("Peer sync: polled %s, state applied\r\n"), ipStr);
+  } else {
+    Serial.printf_P(PSTR("Peer sync: polled %s OK\r\n"), ipStr);
+  }
   return true;
 }
 
