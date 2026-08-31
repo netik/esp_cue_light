@@ -1,5 +1,6 @@
 #include "CueIO.h"
 
+#include "CueDisplay.h"
 #include "PeerSync.h"
 
 CueIO cueIO;
@@ -32,9 +33,10 @@ void CueIO::applyOutputs(CueChannel& cue) {
 }
 
 void CueIO::updateStatusLed() {
-  // NodeMCU onboard LED is active LOW.
-  digitalWrite(PIN_STATUS_LED,
-                getCueState(CUE_NUMBER_1) == CUE_STATE_GREEN ? LOW : HIGH);
+  digitalWrite(PIN_STATUS_LED, getCueState(CUE_NUMBER_1) == CUE_STATE_GREEN
+                                     ? STATUS_LED_ON
+                                     : STATUS_LED_OFF);
+  cueDisplayRefresh();
 }
 
 void CueIO::begin() {
@@ -165,4 +167,13 @@ void CueIO::loop() {
     pollButton(cue);
   }
   processPendingButtons();
+
+#if CUE_HAS_OLED
+  static unsigned long lastOledMs = 0;
+  const unsigned long now = millis();
+  if (lastOledMs == 0 || (now - lastOledMs) >= 1000) {
+    lastOledMs = now;
+    cueDisplayRefresh();
+  }
+#endif
 }

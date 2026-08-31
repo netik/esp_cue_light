@@ -1,12 +1,13 @@
 #define ESP_FS_WS_MDNS 0
 
 #include <AsyncFsWebServer.h>
-#include <ESP8266WiFi.h>
 #include <LittleFS.h>
 
+#include "CueDisplay.h"
 #include "CueIO.h"
 #include "DashboardHtml.h"
 #include "PeerSync.h"
+#include "PlatformCompat.h"
 #include "config.h"
 
 #define FILESYSTEM LittleFS
@@ -34,15 +35,15 @@ bool waitForWifiWipeHold() {
     if (!cue1ButtonPressed()) {
       Serial.print(F("WiFi wipe cancelled."));
       Serial.print(LINE_END);
-      digitalWrite(PIN_STATUS_LED, HIGH);
+      digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
       return false;
     }
 
-    digitalWrite(PIN_STATUS_LED, ((millis() / 200) % 2) ? LOW : HIGH);
+    digitalWrite(PIN_STATUS_LED, ((millis() / 200) % 2) ? STATUS_LED_ON : STATUS_LED_OFF);
     delay(50);
   }
 
-  digitalWrite(PIN_STATUS_LED, HIGH);
+  digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
   return true;
 }
 
@@ -64,9 +65,8 @@ void wipeWifiConfig() {
 }
 
 void buildApSsid(char* ssid, size_t size) {
-  WiFi.mode(WIFI_STA);
   uint8_t mac[6] = {0};
-  WiFi.macAddress(mac);
+  cueWifiMacAddress(mac);
   snprintf(ssid, size, "CueLight-%02X%02X", mac[4], mac[5]);
 }
 
@@ -182,9 +182,23 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
+  Serial.printf_P(PSTR("Cue Light %s (%s)\r\n"), FIRMWARE_VERSION,
+                  CUE_BOARD_LABEL);
+
+  cueDisplayBegin();
+#ifdef CUE_BOARD_HELTEC_V3
+  // GPIO 0 held at reset enters download mode. After OLED comes up, hold PRG
+  // to wipe WiFi without hitting the bootloader.
+  delay(500);
+#endif
+
   const bool wipeWifi = waitForWifiWipeHold();
 
+#ifdef ARDUINO_ARCH_ESP32
+  if (!FILESYSTEM.begin(true)) {
+#else
   if (!FILESYSTEM.begin()) {
+#endif
     Serial.print(F("ERROR mounting filesystem."));
     Serial.print(LINE_END);
     ESP.restart();
@@ -211,7 +225,7 @@ void setup() {
     server.startCaptivePortal(apSsid, AP_PASSWORD, "/setup");
   }
 
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  cueWifiDisableSleep();
 
   server.setConfigSavedCallback(onConfigSaved);
 

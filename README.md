@@ -1,10 +1,15 @@
 # Cue Light Webserver
 
-ESP8266 (NodeMCU v2) firmware for a two-cue light controller with a web dashboard, WiFi setup portal, and **peer sync** across boards on the same LAN.
+Firmware for a two-cue light controller with a web dashboard, WiFi setup portal, and **peer sync** across boards on the same LAN.
 
-Press a button on any board to toggle a cue red/green locally. That change **POSTs immediately** to every other board in the same **System ID** and **Cue Group** (~100–300 ms). Background polling catches anything missed.
+Supported boards:
 
-**Firmware version:** 1.1.2
+- **NodeMCU v2** (ESP8266)
+- **Heltec WiFi LoRa 32 V3** (ESP32-S3, OLED) — the Meshtastic-style Heltec V3
+
+Press a button on any board to toggle a cue red/green locally. That change **POSTs immediately** to every other board in the same **System ID** and **Cue Group** (~100–300 ms). Background polling catches anything missed. NodeMCU and Heltec boards can mix in the same group.
+
+**Firmware version:** 1.2.0
 
 ## How sync works
 
@@ -24,8 +29,10 @@ Full design details: **[docs/peer-sync-architecture.md](./docs/peer-sync-archite
 ## Quick start
 
 ```bash
-./scripts/setup-libraries.sh   # once, installs ESP8266 core + libraries
-make upload-both               # flash firmware to both boards (see ports below)
+./scripts/setup-libraries.sh   # once, installs ESP8266 + ESP32 cores and libraries
+make upload-both               # flash firmware to both NodeMCU boards (see ports below)
+# or, for a Heltec V3:
+make upload-heltec PORT=/dev/cu.usbserial-XXXX
 ```
 
 1. Power boards and connect them to your show WiFi via `/setup`.
@@ -44,7 +51,11 @@ After that, firmware-only uploads are fine when you are not changing `data/`.
 
 ## Hardware
 
-Target: **NodeMCU v2** (`esp8266:esp8266:nodemcuv2`, 4 MB flash, 2 MB LittleFS).
+Pin assignments are in `config.h`. Drive lamps through a transistor or MOSFET; GPIO **HIGH** turns a lamp on. Do not draw more than ~12 mA directly from a GPIO.
+
+### NodeMCU v2 (default)
+
+FQBN: `esp8266:esp8266:nodemcuv2` (4 MB flash, 2 MB LittleFS).
 
 | Function         | NodeMCU pin | GPIO |
 |------------------|-------------|------|
@@ -55,22 +66,59 @@ Target: **NodeMCU v2** (`esp8266:esp8266:nodemcuv2`, 4 MB flash, 2 MB LittleFS).
 | Cue 2 red lamp   | D7          | 13   |
 | Cue 2 green lamp | D8          | 15   |
 
-Pin assignments are in `config.h`.
+### Heltec WiFi LoRa 32 V3 (ESP32-S3)
+
+FQBN: `esp32:esp32:heltec_wifi_lora_32_V3`. Selecting this board (or `-DBOARD_HELTEC_V3`) switches pins, LED polarity, and enables the OLED.
+
+The 0.96" display shows both cue colors, the board IP, and a battery percent + icon in the top right. The onboard **PRG** button is Cue 1. The onboard LED (GPIO 35) follows Cue 1 (on = green).
+
+| Function         | GPIO | Notes |
+|------------------|------|--------|
+| Cue 1 button     | 0    | Onboard PRG (active LOW). Also used for WiFi wipe. |
+| Cue 2 button     | 2    | Header; wire a button to GND |
+| Cue 1 red lamp   | 4    | Header |
+| Cue 1 green lamp | 5    | Header |
+| Cue 2 red lamp   | 6    | Header |
+| Cue 2 green lamp | 7    | Header |
+| Status LED      | 35   | Onboard, **active HIGH** |
+
+GPIO 4–7 are consecutive user pins on the header and are free of LoRa, OLED, and USB.
+
+**Do not use** for lamps or buttons:
+
+| GPIO | Taken by |
+|------|----------|
+| 1 | Battery voltage ADC |
+| 8–14 | SX1262 LoRa (NSS, SCK, MOSI, MISO, RST, BUSY, DIO1) |
+| 17, 18, 21 | OLED I2C SDA/SCL/RST |
+| 19, 20 | USB D−/D+ |
+| 35 | Onboard LED |
+| 36 | Vext (active LOW; firmware turns this on to power the OLED) |
+| 37 | Battery ADC enable (ADC_CTRL) |
+| 43, 44 | UART0 (USB serial) |
+| 45, 46 | Strapping pins |
+
+Spare header GPIOs if you need to reassign lamps: **47** and **48**.
+
+**WiFi wipe on Heltec:** GPIO 0 held at reset enters flash download mode. Power the board *without* holding PRG. When the OLED shows the splash, hold **PRG for 3 seconds** to wipe WiFi.
+
+Heltec firmware seeds `/index.htm` on first boot, so a separate LittleFS upload is not required.
 
 ---
 
 ## Prerequisites
 
-- [Arduino CLI](https://arduino.github.io/arduino-cli/)
+- [Arduino CLI](https://arduino.github.io/arduino-cli/) **1.x** (Homebrew `arduino-cli` 1.5+). The copy at `~/bin/arduino-cli` is 0.12.1 and rebuilds the ESP32 core into `/tmp` on every compile — `make` now prefers `/opt/homebrew/bin/arduino-cli`.
 - Libraries installed by `./scripts/setup-libraries.sh`:
   - `AsyncEspFsWebserver`
-  - `ESPAsyncTCP`
+  - `ESPAsyncTCP` (ESP8266)
+  - `ESP32Async/AsyncTCP` (ESP32)
   - `ESP32Async/ESPAsyncWebServer` (fork; setup script replaces stock library)
 
-Core libraries used by peer sync (included with ESP8266 core, no extra install):
+Core libraries used by peer sync (bundled with the cores, no extra install):
 
-- `ESP8266mDNS`
-- `ESP8266HTTPClient`
+- ESP8266: `ESP8266mDNS`, `ESP8266HTTPClient`
+- ESP32: `ESPmDNS`, `HTTPClient`
 
 ---
 
@@ -84,26 +132,33 @@ Configured in `.vscode/settings.json` and `Makefile`:
 |---------|---------------------------|
 | **0001**  | `/dev/cu.usbserial-0001`  |
 | **83430** | `/dev/cu.usbserial-83430` |
+| **Heltec V3** | set `cueLight.heltec.port` or pass `PORT=` (`make boards`) |
+
+Heltec boards usually appear as `/dev/cu.usbserial-*` (CP2102) or `/dev/cu.usbmodem*`.
 
 ### VS Code / Cursor tasks
 
 | Task | What it does |
 |------|----------------|
-| **Arduino: Compile (ESP8266)** | Build firmware |
-| **Arduino: Upload firmware → Board 0001 / 83430 / Both** | Flash firmware only |
-| **Arduino: Upload LittleFS → Board 0001 / 83430** | Upload `data/` to flash |
+| **Arduino: Compile (ESP8266)** | Build NodeMCU firmware |
+| **Arduino: Compile (Heltec V3)** | Build Heltec ESP32-S3 firmware |
+| **Arduino: Upload firmware → Board 0001 / 83430 / Both** | Flash NodeMCU firmware only |
+| **Arduino: Upload firmware → Heltec V3** | Flash Heltec firmware |
+| **Arduino: Upload LittleFS → Board 0001 / 83430** | Upload `data/` to NodeMCU flash |
 | **Arduino: Full Deploy → Board 0001 / 83430 / Both** | Firmware + LittleFS |
-| **Arduino: Serial Monitor → Board 0001 / 83430** | 115200 baud debug output |
+| **Arduino: Serial Monitor → Board 0001 / 83430 / Heltec V3** | 115200 baud debug output |
 
 ### Makefile targets
 
 ```bash
-make compile          # build only
+make compile          # NodeMCU build only
+make compile-heltec  # Heltec V3 build only
 
 # Firmware only (skip when data/ unchanged)
 make upload-board1
 make upload-board2
 make upload-both
+make upload-heltec PORT=/dev/cu.usbserial-XXXX
 
 # LittleFS only
 make littlefs-board1
@@ -148,14 +203,14 @@ The dashboard at `/index.htm` is also embedded in firmware (`DashboardHtml.h`) a
 
 Config is stored at `/setup/config.json` on LittleFS.
 
-**WiFi wipe:** hold the Cue 1 button for 3 seconds at boot.
+**WiFi wipe:** hold the Cue 1 button for 3 seconds at boot (NodeMCU: D1). On Heltec, wait for the OLED splash, then hold **PRG**.
 
 ### Expected serial output (station mode)
 
 ```
 Peer sync ready: hostname=CueLight-8D22.local ip=192.168.x.x system_id=1 cue_group=1
 
-Cue Light Webserver 1.1.2 at 192.168.x.x
+Cue Light Webserver 1.2.0 at 192.168.x.x
 Dashboard at /. Configure network at /setup
 ```
 
@@ -220,15 +275,17 @@ avahi-browse -rt _cuelight._tcp   # Linux
 
 ```
 cue_light_webserver.ino   Main sketch — WiFi, web server, API
-config.h                  Pins, defaults, peer-sync timing
+config.h                  Pins, board select, defaults, peer-sync timing
 CueIO.*                   Buttons, lamp outputs, sequence numbers
-PeerSync.*                LEAmDNS discovery, HTTP POST push, GET polling
+CueDisplay.*              Heltec OLED status (no-op on NodeMCU)
+PlatformCompat.h          ESP8266 / ESP32 WiFi, mDNS, HTTP shims
+PeerSync.*                mDNS discovery, HTTP POST push, GET polling
 DashboardHtml.h           Embedded dashboard (seeded to LittleFS)
 data/index.htm            Dashboard source (uploaded to LittleFS)
 docs/                     Architecture, protocol, operations
 scripts/
-  setup-libraries.sh      Install ESP8266 core and libraries
-  upload-littlefs.sh      Build and flash LittleFS image
+  setup-libraries.sh      Install ESP8266 + ESP32 cores and libraries
+  upload-littlefs.sh      Build and flash LittleFS image (NodeMCU)
 ```
 
 ---

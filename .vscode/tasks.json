@@ -4,7 +4,7 @@
     {
       "label": "Arduino: List Boards",
       "type": "shell",
-      "command": "/Users/jna/bin/arduino-cli",
+      "command": "${config:cueLight.cli}",
       "args": ["board", "list"],
       "group": "none",
       "presentation": {
@@ -16,11 +16,15 @@
     {
       "label": "Arduino: Compile (ESP8266)",
       "type": "shell",
-      "command": "/Users/jna/bin/arduino-cli",
+      "command": "${config:cueLight.cli}",
       "args": [
         "compile",
         "--fqbn",
         "${config:cueLight.fqbn}",
+        "--build-path",
+        "${workspaceFolder}/build/nodemcu",
+        "--jobs",
+        "0",
         "${workspaceFolder}"
       ],
       "group": {
@@ -47,14 +51,15 @@
     {
       "label": "Arduino: Upload firmware → Board 0001",
       "type": "shell",
-      "command": "/Users/jna/bin/arduino-cli",
+      "command": "${config:cueLight.cli}",
       "args": [
         "upload",
         "--fqbn",
         "${config:cueLight.fqbn}",
         "--port",
         "${config:cueLight.board1.port}",
-        "${workspaceFolder}"
+        "--input-dir",
+        "${workspaceFolder}/build/nodemcu"
       ],
       "dependsOn": ["Arduino: Compile (ESP8266)"],
       "group": "build",
@@ -67,14 +72,15 @@
     {
       "label": "Arduino: Upload firmware → Board 83430",
       "type": "shell",
-      "command": "/Users/jna/bin/arduino-cli",
+      "command": "${config:cueLight.cli}",
       "args": [
         "upload",
         "--fqbn",
         "${config:cueLight.fqbn}",
         "--port",
         "${config:cueLight.board2.port}",
-        "${workspaceFolder}"
+        "--input-dir",
+        "${workspaceFolder}/build/nodemcu"
       ],
       "dependsOn": ["Arduino: Compile (ESP8266)"],
       "group": "build",
@@ -176,7 +182,7 @@
     {
       "label": "Arduino: Serial Monitor → Board 0001",
       "type": "shell",
-      "command": "/Users/jna/bin/arduino-cli",
+      "command": "${config:cueLight.cli}",
       "args": [
         "monitor",
         "--port",
@@ -194,11 +200,82 @@
     {
       "label": "Arduino: Serial Monitor → Board 83430",
       "type": "shell",
-      "command": "/Users/jna/bin/arduino-cli",
+      "command": "${config:cueLight.cli}",
       "args": [
         "monitor",
         "--port",
         "${config:cueLight.board2.port}",
+        "--config",
+        "baudrate=${config:cueLight.baud}"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Compile (Heltec V3)",
+      "type": "shell",
+      "command": "${config:cueLight.cli}",
+      "args": [
+        "compile",
+        "--fqbn",
+        "${config:cueLight.heltec.fqbn}",
+        "--build-path",
+        "${workspaceFolder}/build/heltec",
+        "--jobs",
+        "0",
+        "${workspaceFolder}"
+      ],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": {
+        "owner": "arduino",
+        "fileLocation": ["absolute"],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    },
+    {
+      "label": "Arduino: Upload firmware → Heltec V3",
+      "type": "shell",
+      "command": "${config:cueLight.cli}",
+      "args": [
+        "upload",
+        "--fqbn",
+        "${config:cueLight.heltec.fqbn}",
+        "--port",
+        "${config:cueLight.heltec.port}",
+        "--input-dir",
+        "${workspaceFolder}/build/heltec"
+      ],
+      "dependsOn": ["Arduino: Compile (Heltec V3)"],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Serial Monitor → Heltec V3",
+      "type": "shell",
+      "command": "${config:cueLight.cli}",
+      "args": [
+        "monitor",
+        "--port",
+        "${config:cueLight.heltec.port}",
         "--config",
         "baudrate=${config:cueLight.baud}"
       ],

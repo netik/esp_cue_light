@@ -1,6 +1,6 @@
 {
-  "arduino.path": "/Users/jna/bin/arduino-cli",
-  "arduino.commandPath": "/Users/jna/bin/arduino-cli",
+  "arduino.path": "/opt/homebrew/bin",
+  "arduino.commandPath": "arduino-cli",
   "arduino.additionalUrls": [],
   "arduino.defaultBaudRate": 115200,
   "arduino.logLevel": "info",
@@ -14,10 +14,13 @@
   "files.associations": {
     "*.ino": "cpp"
   },
+  "cueLight.cli": "/opt/homebrew/bin/arduino-cli",
   "cueLight.fqbn": "esp8266:esp8266:nodemcuv2:eesz=4M2M,ip=lm2n",
+  "cueLight.heltec.fqbn": "esp32:esp32:heltec_wifi_lora_32_V3",
   "cueLight.baud": "115200",
   "cueLight.board1.port": "/dev/cu.usbserial-0001",
   "cueLight.board1.name": "0001",
   "cueLight.board2.port": "/dev/cu.usbserial-83430",
-  "cueLight.board2.name": "83430"
+  "cueLight.board2.name": "83430",
+  "cueLight.heltec.port": "/dev/cu.usbserial-0001"
 }

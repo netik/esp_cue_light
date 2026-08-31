@@ -1,8 +1,5 @@
 #include "PeerSync.h"
 
-#include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
-
 #include "CueIO.h"
 
 PeerSync peerSync;
@@ -41,15 +38,17 @@ bool isSeqNewer(uint32_t incoming, uint32_t current) {
 
 void buildHostname(char* hostname, size_t size) {
   uint8_t mac[6] = {0};
-  WiFi.macAddress(mac);
+  cueWifiMacAddress(mac);
   snprintf(hostname, size, "CueLight-%02X%02X", mac[4], mac[5]);
 }
 
+#ifndef ARDUINO_ARCH_ESP32
 void mdnsServiceQueryCallback(MDNSResponder::MDNSServiceInfo serviceInfo,
                               MDNSResponder::AnswerType answerType,
                               bool added) {
   peerSync.handleMdnsAnswer(serviceInfo, answerType, added);
 }
+#endif
 }  // namespace
 
 void PeerSync::formatIp(char* buffer, size_t size, const IPAddress& ip) {
@@ -65,6 +64,15 @@ void PeerSync::setNetworkFilter(uint16_t systemId, uint16_t cueGroup) {
 }
 
 void PeerSync::updateServiceTxt() {
+#ifdef ARDUINO_ARCH_ESP32
+  char value[8];
+  snprintf(value, sizeof(value), "%u", _systemId);
+  MDNS.addServiceTxt(String(CUE_MDNS_SERVICE), String("tcp"), String("system_id"),
+                     String(value));
+  snprintf(value, sizeof(value), "%u", _cueGroup);
+  MDNS.addServiceTxt(String(CUE_MDNS_SERVICE), String("tcp"), String("cue_group"),
+                     String(value));
+#else
   if (_mdnsService == 0) {
     return;
   }
@@ -75,8 +83,10 @@ void PeerSync::updateServiceTxt() {
 
   snprintf(value, sizeof(value), "%u", _cueGroup);
   MDNS.addServiceTxt(_mdnsService, "cue_group", value);
+#endif
 }
 
+#ifndef ARDUINO_ARCH_ESP32
 bool PeerSync::peerMatchesFilter(
     MDNSResponder::MDNSServiceInfo& serviceInfo) {
   if (!serviceInfo.txtAvailable()) {
@@ -106,6 +116,7 @@ bool PeerSync::peerMatchesFilter(
   }
   return true;
 }
+#endif
 
 bool PeerSync::begin() {
   if (WiFi.status() != WL_CONNECTED || WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
@@ -116,7 +127,7 @@ bool PeerSync::begin() {
 
   char hostname[20];
   buildHostname(hostname, sizeof(hostname));
-  WiFi.hostname(hostname);
+  cueWifiSetHostname(hostname);
 
   if (!MDNS.begin(hostname)) {
     Serial.print(F("Peer sync: mDNS begin failed."));
@@ -124,6 +135,14 @@ bool PeerSync::begin() {
     return false;
   }
 
+#ifdef ARDUINO_ARCH_ESP32
+  if (!MDNS.addService(CUE_MDNS_SERVICE, "tcp", CUE_HTTP_PORT)) {
+    Serial.print(F("Peer sync: mDNS addService failed."));
+    Serial.print(LINE_END);
+    return false;
+  }
+  updateServiceTxt();
+#else
   _mdnsService = MDNS.addService(0, CUE_MDNS_SERVICE, "tcp", CUE_HTTP_PORT);
   if (_mdnsService == 0) {
     Serial.print(F("Peer sync: mDNS addService failed."));
@@ -140,6 +159,7 @@ bool PeerSync::begin() {
     Serial.print(LINE_END);
     return false;
   }
+#endif
 
   for (auto& peer : _peers) {
     peer.valid = false;
@@ -227,7 +247,7 @@ bool PeerSync::pushToPeer(const PeerEntry& peer, const char* json) {
 
   char url[48];
   formatPeerUrl(url, sizeof(url), peer.ip);
-  if (!http.begin(client, url)) {
+  if (!cueHttpBegin(http, client, url)) {
     return false;
   }
 
@@ -384,6 +404,7 @@ uint8_t PeerSync::countPeers() const {
   return count;
 }
 
+#ifndef ARDUINO_ARCH_ESP32
 void PeerSync::handleMdnsAnswer(MDNSResponder::MDNSServiceInfo& serviceInfo,
                                 MDNSResponder::AnswerType answerType,
                                 bool added) {
@@ -399,8 +420,56 @@ void PeerSync::handleMdnsAnswer(MDNSResponder::MDNSServiceInfo& serviceInfo,
     queueMdnsEvent(ip, added);
   }
 }
+#endif
 
 void PeerSync::refreshPeersFromMdns() {
+#ifdef ARDUINO_ARCH_ESP32
+  mdns_result_t* results = nullptr;
+  const esp_err_t err =
+      mdns_query_ptr("_" CUE_MDNS_SERVICE, "_tcp", PEER_SYNC_MDNS_QUERY_MS,
+                     PEER_SYNC_MAX_PEERS, &results);
+  if (err != ESP_OK || results == nullptr) {
+    Serial.printf_P(PSTR("Peer sync: mDNS refresh, tracking %u peer(s)\r\n"),
+                    countPeers());
+    return;
+  }
+
+  const IPAddress selfIp = WiFi.localIP();
+  for (mdns_result_t* r = results; r != nullptr; r = r->next) {
+    bool match = true;
+    for (size_t i = 0; i < r->txt_count; ++i) {
+      if (r->txt[i].key == nullptr || r->txt[i].value == nullptr) {
+        continue;
+      }
+      if (strcmp(r->txt[i].key, "system_id") == 0 &&
+          (uint16_t)atoi(r->txt[i].value) != _systemId) {
+        match = false;
+        break;
+      }
+      if (strcmp(r->txt[i].key, "cue_group") == 0 &&
+          (uint16_t)atoi(r->txt[i].value) != _cueGroup) {
+        match = false;
+        break;
+      }
+    }
+    if (!match) {
+      continue;
+    }
+
+    for (mdns_ip_addr_t* addr = r->addr; addr != nullptr; addr = addr->next) {
+      if (addr->addr.type != MDNS_IP_PROTOCOL_V4) {
+        continue;
+      }
+      const IPAddress ip(addr->addr.u_addr.ip4.addr);
+      if (ip == IPAddress(0, 0, 0, 0) || ip == selfIp) {
+        continue;
+      }
+      touchPeer(ip);
+    }
+  }
+
+  mdns_query_results_free(results);
+#else
   if (_mdnsQuery == 0) {
     return;
   }
@@ -418,6 +487,7 @@ void PeerSync::refreshPeersFromMdns() {
       touchPeer(ip);
     }
   }
+#endif
 
   Serial.printf_P(PSTR("Peer sync: mDNS refresh, tracking %u peer(s)\r\n"),
                   countPeers());
@@ -489,7 +559,7 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
 
   char url[48];
   formatPeerUrl(url, sizeof(url), peer.ip);
-  if (!http.begin(client, url)) {
+  if (!cueHttpBegin(http, client, url)) {
     char ipStr[16];
     formatIp(ipStr, sizeof(ipStr), peer.ip);
     Serial.printf_P(PSTR("Peer sync: HTTP begin failed for %s\r\n"), ipStr);
@@ -507,7 +577,7 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
   }
 
   char json[128];
-  WiFiClient* stream = http.getStreamPtr();
+  auto* stream = http.getStreamPtr();
   if (stream == nullptr) {
     http.end();
     return false;
@@ -543,8 +613,10 @@ void PeerSync::loop() {
   }
 
   cueIO.loop();
+#ifndef ARDUINO_ARCH_ESP32
   MDNS.update();
   processMdnsEvents();
+#endif
 
   // Push always wins over discovery and poll.
   if (processPendingPush()) {

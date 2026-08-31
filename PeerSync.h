@@ -1,8 +1,6 @@
 #pragma once
 
-#include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
+#include "PlatformCompat.h"
 #include "config.h"
 
 class PeerSync {
@@ -13,8 +11,11 @@ public:
   void notifyLocalChange();
   bool applyIncomingJson(const char* json);
   void buildStateJson(char* buffer, size_t size) const;
+  uint8_t countPeers() const;
+#ifndef ARDUINO_ARCH_ESP32
   void handleMdnsAnswer(MDNSResponder::MDNSServiceInfo& serviceInfo,
                         MDNSResponder::AnswerType answerType, bool added);
+#endif
 
 private:
   enum class ApplySource : uint8_t { Push, Poll };
@@ -44,8 +45,10 @@ private:
   uint8_t _pollIndex = 0;
   volatile uint8_t _mdnsEventCount = 0;
 
+#ifndef ARDUINO_ARCH_ESP32
   MDNSResponder::hMDNSService _mdnsService = 0;
   MDNSResponder::hMDNSServiceQuery _mdnsQuery = 0;
+#endif
 
   PeerEntry _peers[PEER_SYNC_MAX_PEERS];
   MdnsEvent _mdnsEvents[PEER_SYNC_MDNS_EVENT_QUEUE];
@@ -62,12 +65,13 @@ private:
   bool pollPeer(const PeerEntry& peer);
   bool pushToPeer(const PeerEntry& peer, const char* json);
   bool parseAndApply(const char* json, ApplySource source);
+#ifndef ARDUINO_ARCH_ESP32
   bool peerMatchesFilter(MDNSResponder::MDNSServiceInfo& serviceInfo);
+#endif
   void touchPeer(IPAddress ip);
   void removePeer(IPAddress ip);
   PeerEntry* findPeer(IPAddress ip);
   PeerEntry* allocPeer(IPAddress ip);
-  uint8_t countPeers() const;
   static void formatIp(char* buffer, size_t size, const IPAddress& ip);
   static void formatPeerUrl(char* buffer, size_t size, const IPAddress& ip);
 };

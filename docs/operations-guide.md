@@ -2,7 +2,7 @@
 
 Practical steps for deploying, configuring, and troubleshooting cue-light boards on a show network.
 
-**Firmware:** v1.1.2
+**Firmware:** v1.2.0
 
 ---
 
@@ -157,6 +157,8 @@ Expect `{"ok":1}` if sequences are newer than the board's current state.
 ## WiFi wipe (factory reset credentials)
 
 Hold **Cue 1 button** for **3 seconds** at boot to wipe saved WiFi credentials. The board restarts AP mode (`CueLight-XXXX` / password `123456789`).
+
+On **Heltec V3**, GPIO 0 (PRG) held *during reset* enters flash download mode instead. Power on without holding PRG; when the OLED splash appears, hold PRG for 3 seconds.
 
 ---
 

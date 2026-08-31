@@ -1,6 +1,6 @@
 # Cue Light — documentation
 
-Technical documentation for the cue-light ESP8266 firmware (**v1.1.2**).
+Technical documentation for the cue-light firmware (**v1.2.0**). NodeMCU (ESP8266) and Heltec WiFi LoRa 32 V3 (ESP32-S3) share this tree; the Heltec variant is selected by FQBN.
 
 For building, flashing, hardware pins, and WiFi setup, start with the **[main README](../README.md)**.
 
@@ -56,9 +56,11 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 
 | File | Role |
 |------|------|
-| `PeerSync.cpp` / `PeerSync.h` | LEAmDNS discovery, HTTP POST push, background GET polling |
+| `PeerSync.cpp` / `PeerSync.h` | mDNS discovery (LEAmDNS on ESP8266, ESPmDNS on ESP32), HTTP POST push, background GET polling |
 | `CueIO.cpp` / `CueIO.h` | Buttons, lamp outputs, sequence numbers; triggers push on local change |
-| `config.h` | Pins, defaults, `PEER_SYNC_*` timing constants |
+| `CueDisplay.cpp` / `CueDisplay.h` | Heltec OLED status; no-op on NodeMCU |
+| `PlatformCompat.h` | ESP8266 / ESP32 WiFi, mDNS, HTTP includes |
+| `config.h` | Pins (board-selected), defaults, `PEER_SYNC_*` timing constants |
 | `cue_light_webserver.ino` | WiFi, web server, `GET`/`POST /api/cues` handlers |
 
 ---
