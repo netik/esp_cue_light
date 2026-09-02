@@ -70,12 +70,12 @@ FQBN: `esp8266:esp8266:nodemcuv2` (4 MB flash, 2 MB LittleFS).
 
 FQBN: `esp32:esp32:heltec_wifi_lora_32_V3`. Selecting this board (or `-DBOARD_HELTEC_V3`) switches pins, LED polarity, and enables the OLED.
 
-The 0.96" display shows both cue colors, the board IP, and a battery percent + icon in the top right. The onboard **PRG** button is Cue 1. The onboard LED (GPIO 35) follows Cue 1 (on = green).
+The 0.96" display shows **Cue 1** as one full-width box (`CUE_LOCAL_ONE` — Heltec has only the PRG button). IP and battery sit in the header. A short **PRG** press toggles Cue 1. Hold **PRG for 3 seconds** to power off (OLED shows `-OFF-`, then deep sleep). A short press wakes the board. USB charging still works while asleep. The onboard LED (GPIO 35) follows Cue 1 (on = green). Set `CUE_LOCAL` in `config.h` to `CUE_LOCAL_ALL` (two boxes) or `CUE_LOCAL_TWO` (Cue 2 only; PRG maps to Cue 2).
 
 | Function         | GPIO | Notes |
 |------------------|------|--------|
-| Cue 1 button     | 0    | Onboard PRG (active LOW). Also used for WiFi wipe. |
-| Cue 2 button     | 2    | Header; wire a button to GND |
+| Cue 1 button     | 0    | Onboard PRG (active LOW). Short press toggles cue. Hold 3 s: WiFi wipe at boot, power-off in run. |
+| Cue 2 button     | 2    | Header; unused in `CUE_LOCAL_ONE` |
 | Cue 1 red lamp   | 4    | Header |
 | Cue 1 green lamp | 5    | Header |
 | Cue 2 red lamp   | 6    | Header |

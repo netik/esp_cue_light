@@ -10,41 +10,70 @@
 #include "PlatformCompat.h"
 #include "config.h"
 
+#ifdef CUE_BOARD_HELTEC_V3
+#include <esp_sleep.h>
+#endif
+
 #define FILESYSTEM LittleFS
 AsyncFsWebServer server(FILESYSTEM, 80);
 
 uint16_t systemId = DEFAULT_SYSTEM_ID;
 uint16_t cueGroup = DEFAULT_CUE_GROUP;
 
-bool cue1ButtonPressed() {
-  return digitalRead(PIN_BTN_CUE1) == LOW;
+bool wipeButtonPressed() {
+  return digitalRead(PIN_BTN_PRIMARY) == LOW;
 }
 
 bool waitForWifiWipeHold() {
-  pinMode(PIN_BTN_CUE1, INPUT_PULLUP);
-  if (!cue1ButtonPressed()) {
-    return false;
-  }
+  pinMode(PIN_BTN_PRIMARY, INPUT_PULLUP);
+  pinMode(PIN_STATUS_LED, OUTPUT);
+  digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
 
-  Serial.printf_P(PSTR("Cue 1 held at boot: keep pressed %u seconds to wipe WiFi...\r\n"),
+  Serial.printf_P(PSTR("Boot DFM: cue lamps blink red/green for %u seconds. Hold primary button to wipe WiFi.\r\n"),
                   (unsigned)(WIFI_WIPE_HOLD_MS / 1000));
 
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  const unsigned long deadline = millis() + WIFI_WIPE_HOLD_MS;
-  while (millis() < deadline) {
-    if (!cue1ButtonPressed()) {
-      Serial.print(F("WiFi wipe cancelled."));
-      Serial.print(LINE_END);
+  const unsigned long windowStart = millis();
+  unsigned long holdStart = 0;
+  bool announcedHold = false;
+
+  while (true) {
+    const unsigned long now = millis();
+    const bool green = ((now / CUE_DFM_BLINK_MS) % 2) != 0;
+    cueIO.setDfmLamps(green ? CUE_STATE_GREEN : CUE_STATE_RED);
+
+    const bool pressed = wipeButtonPressed();
+    if (pressed) {
+      if (holdStart == 0) {
+        holdStart = now;
+      }
+      if (!announcedHold) {
+        Serial.printf_P(PSTR("Primary button held: keep pressed %u seconds to wipe WiFi...\r\n"),
+                        (unsigned)(WIFI_WIPE_HOLD_MS / 1000));
+        announcedHold = true;
+      }
+      digitalWrite(PIN_STATUS_LED,
+                   ((now / 200) % 2) ? STATUS_LED_ON : STATUS_LED_OFF);
+      if ((now - holdStart) >= WIFI_WIPE_HOLD_MS) {
+        digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
+        cueIO.setDfmLamps(CUE_STATE_RED);
+        return true;
+      }
+    } else {
+      if (announcedHold) {
+        Serial.print(F("WiFi wipe cancelled."));
+        Serial.print(LINE_END);
+        announcedHold = false;
+      }
+      holdStart = 0;
       digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
-      return false;
+      if ((now - windowStart) >= WIFI_WIPE_HOLD_MS) {
+        cueIO.setDfmLamps(CUE_STATE_RED);
+        return false;
+      }
     }
 
-    digitalWrite(PIN_STATUS_LED, ((millis() / 200) % 2) ? STATUS_LED_ON : STATUS_LED_OFF);
-    delay(50);
+    delay(20);
   }
-
-  digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
-  return true;
 }
 
 void wipeWifiConfig() {
@@ -59,7 +88,7 @@ void wipeWifiConfig() {
   Serial.print(F("WiFi credentials wiped. Device will start AP /setup on next boot."));
   Serial.print(LINE_END);
 
-  while (cue1ButtonPressed()) {
+  while (wipeButtonPressed()) {
     delay(10);
   }
 }
@@ -182,17 +211,33 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
-  Serial.printf_P(PSTR("Cue Light %s (%s)\r\n"), FIRMWARE_VERSION,
-                  CUE_BOARD_LABEL);
+#ifdef CUE_BOARD_HELTEC_V3
+  CueIO::releaseSleepHolds();
+  const bool wokeFromSleep =
+      esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0;
+#else
+  const bool wokeFromSleep = false;
+#endif
+
+  Serial.printf_P(PSTR("Cue Light %s (%s, CUE_LOCAL=%s)\r\n"), FIRMWARE_VERSION,
+                  CUE_BOARD_LABEL, CUE_LOCAL_LABEL);
+#ifdef CUE_BOARD_HELTEC_V3
+  if (wokeFromSleep) {
+    Serial.print(F("Woke from power-off."));
+    Serial.print(LINE_END);
+  }
+#endif
 
   cueDisplayBegin();
 #ifdef CUE_BOARD_HELTEC_V3
   // GPIO 0 held at reset enters download mode. After OLED comes up, hold PRG
   // to wipe WiFi without hitting the bootloader.
-  delay(500);
+  if (!wokeFromSleep) {
+    delay(500);
+  }
 #endif
 
-  const bool wipeWifi = waitForWifiWipeHold();
+  const bool wipeWifi = wokeFromSleep ? false : waitForWifiWipeHold();
 
 #ifdef ARDUINO_ARCH_ESP32
   if (!FILESYSTEM.begin(true)) {

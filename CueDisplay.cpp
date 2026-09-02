@@ -9,6 +9,8 @@
 void cueDisplayBegin() {}
 void cueDisplayRefresh() {}
 void cueDisplaySplash() {}
+void cueDisplayShowOff() {}
+void cueDisplayPowerDown() {}
 
 #else
 
@@ -370,10 +372,9 @@ void drawPeerCount(uint8_t peers) {
   drawNodeIcon(iconX, y);
 }
 
-void drawCueBox(int x, uint8_t cueNumber, uint8_t state) {
+void drawCueBox(int x, int w, uint8_t cueNumber, uint8_t state) {
   const bool green = state == CUE_STATE_GREEN;
-  const int w = 62;
-  const int h = 36;
+  const int h = (w >= (int)kWidth) ? 42 : 36;
   const int y = 22;
 
   if (green) {
@@ -387,8 +388,12 @@ void drawCueBox(int x, uint8_t cueNumber, uint8_t state) {
   snprintf(label, sizeof(label), "CUE %u", cueNumber);
   const char* color = green ? "GREEN" : "RED";
   const bool ink = !green;
-  drawText(x + 8, y + 6, label, ink);
-  drawText(x + 8, y + 18, color, ink);
+  const int labelW = (int)strlen(label) * 6;
+  const int colorW = (int)strlen(color) * 6;
+  const int textY0 = y + (h >= 42 ? 10 : 6);
+  const int textY1 = y + (h >= 42 ? 24 : 18);
+  drawText(x + (w - labelW) / 2, textY0, label, ink);
+  drawText(x + (w - colorW) / 2, textY1, color, ink);
 }
 
 }  // namespace
@@ -417,6 +422,27 @@ void cueDisplaySplash() {
   flush();
 }
 
+void cueDisplayShowOff() {
+  if (!g_ready) {
+    return;
+  }
+  clear();
+  fillRect(0, 18, kWidth, 40, true);
+  const char* msg = "-OFF-";
+  const int textW = 5 * 6;
+  drawText((kWidth - textW) / 2, 32, msg, false);
+  flush();
+}
+
+void cueDisplayPowerDown() {
+  if (g_ready) {
+    sendCmd(0xAE);
+    g_ready = false;
+  }
+  pinMode(PIN_VEXT, OUTPUT);
+  digitalWrite(PIN_VEXT, HIGH);
+}
+
 void cueDisplayRefresh() {
   if (!g_ready) {
     return;
@@ -441,8 +467,14 @@ void cueDisplayRefresh() {
   drawText(0, 10, ipLine, true);
   drawPeerCount(peerSync.countPeers());
 
-  drawCueBox(0, CUE_NUMBER_1, cueIO.getCueState(CUE_NUMBER_1));
-  drawCueBox(66, CUE_NUMBER_2, cueIO.getCueState(CUE_NUMBER_2));
+#if CUE_LOCAL == CUE_LOCAL_ALL
+  drawCueBox(0, 62, CUE_NUMBER_1, cueIO.getCueState(CUE_NUMBER_1));
+  drawCueBox(66, 62, CUE_NUMBER_2, cueIO.getCueState(CUE_NUMBER_2));
+#elif CUE_LOCAL == CUE_LOCAL_TWO
+  drawCueBox(0, kWidth, CUE_NUMBER_2, cueIO.getCueState(CUE_NUMBER_2));
+#else
+  drawCueBox(0, kWidth, CUE_NUMBER_1, cueIO.getCueState(CUE_NUMBER_1));
+#endif
   flush();
 }
 

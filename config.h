@@ -14,12 +14,34 @@
 #define CUE_BOARD_HELTEC_V3 1
 #endif
 
+// Which cue(s) this board locally displays and buttons. Network sync still
+// carries both cues. Integer values so #if works (string macros cannot).
+//   CUE_LOCAL_ALL (0) — two boxes, cue 1 and cue 2
+//   CUE_LOCAL_ONE (1) — one full-width box, cue 1 only
+//   CUE_LOCAL_TWO (2) — one full-width box, cue 2 only (primary button → cue 2)
+#define CUE_LOCAL_ALL 0
+#define CUE_LOCAL_ONE 1
+#define CUE_LOCAL_TWO 2
+
+#ifndef CUE_LOCAL
+#ifdef CUE_BOARD_HELTEC_V3
+#define CUE_LOCAL CUE_LOCAL_ONE
+#else
+#define CUE_LOCAL CUE_LOCAL_ALL
+#endif
+#endif
+
+#if CUE_LOCAL != CUE_LOCAL_ALL && CUE_LOCAL != CUE_LOCAL_ONE && \
+    CUE_LOCAL != CUE_LOCAL_TWO
+#error CUE_LOCAL must be CUE_LOCAL_ALL, CUE_LOCAL_ONE, or CUE_LOCAL_TWO
+#endif
+
 #ifdef CUE_BOARD_HELTEC_V3
 // Heltec WiFi LoRa 32 V3 — do not use LoRa SPI (8–14), OLED I2C (17/18/21),
 // UART0 (43/44), USB D+/D- (19/20), Vext (36), GPIO 1 (VBAT ADC), GPIO 37
 // (ADC_CTRL), or strapping pins 45/46.
-#define PIN_BTN_CUE1 0   // onboard PRG button (active LOW)
-#define PIN_BTN_CUE2 2   // header; wire button to GND
+#define PIN_BTN_PRIMARY 0    // onboard PRG button (active LOW)
+#define PIN_BTN_SECONDARY 2  // header; wire button to GND
 
 #define PIN_CUE1_RED 4    // GPIO wired to the LED's red cathode
 #define PIN_CUE1_GREEN 5  // GPIO wired to the LED's green cathode
@@ -40,11 +62,14 @@
 #define PIN_ADC_CTRL 37   // drive LOW to connect the VBAT divider
 #define VBAT_DIVIDER 4.9f // schematic: 100k / (100k+390k)
 
+#define PIN_LORA_NSS 8   // held HIGH in power-off so the radio stays quiet
+#define PIN_LORA_RST 12  // held LOW in power-off (chip reset)
+
 #define CUE_BOARD_LABEL "Heltec WiFi LoRa 32 V3"
 #else
 // NodeMCU v2 (ESP8266) — pin labels in comments.
-#define PIN_BTN_CUE1 5   // D1
-#define PIN_BTN_CUE2 4   // D2
+#define PIN_BTN_PRIMARY 5    // D1
+#define PIN_BTN_SECONDARY 4  // D2
 
 #define PIN_CUE1_RED 14    // D5
 #define PIN_CUE1_GREEN 12  // D6
@@ -60,6 +85,16 @@
 
 #define CUE_HAS_OLED 0
 #define CUE_BOARD_LABEL "NodeMCU v2"
+#endif
+
+// CUE_LOCAL_TWO maps the physical primary button (Heltec PRG / NodeMCU D1)
+// onto cue 2. WiFi wipe always uses PIN_BTN_PRIMARY, not the cue mapping.
+#if CUE_LOCAL == CUE_LOCAL_TWO
+#define PIN_BTN_CUE1 PIN_BTN_SECONDARY
+#define PIN_BTN_CUE2 PIN_BTN_PRIMARY
+#else
+#define PIN_BTN_CUE1 PIN_BTN_PRIMARY
+#define PIN_BTN_CUE2 PIN_BTN_SECONDARY
 #endif
 
 #if STATUS_LED_ACTIVE_LOW
@@ -79,6 +114,17 @@
 #define CUE_COUNT 2
 #define CUE_NUMBER_1 1
 #define CUE_NUMBER_2 2
+
+#if CUE_LOCAL == CUE_LOCAL_ALL
+#define CUE_LOCAL_LABEL "ALL"
+#define CUE_STATUS_NUMBER CUE_NUMBER_1
+#elif CUE_LOCAL == CUE_LOCAL_TWO
+#define CUE_LOCAL_LABEL "TWO"
+#define CUE_STATUS_NUMBER CUE_NUMBER_2
+#else
+#define CUE_LOCAL_LABEL "ONE"
+#define CUE_STATUS_NUMBER CUE_NUMBER_1
+#endif
 
 #define CUE_STATE_RED 0
 #define CUE_STATE_GREEN 1
@@ -109,6 +155,8 @@
 
 #define WIFI_CREDENTIALS_FILE "/credentials.bin"
 #define WIFI_WIPE_HOLD_MS 3000
+#define POWER_OFF_HOLD_MS 3000
+#define CUE_DFM_BLINK_MS 250
 
 #define LINE_END "\r\n"
 #define LINE_END_LEN 2
