@@ -21,8 +21,8 @@
 #define PIN_BTN_CUE1 0   // onboard PRG button (active LOW)
 #define PIN_BTN_CUE2 2   // header; wire button to GND
 
-#define PIN_CUE1_RED 4    // header
-#define PIN_CUE1_GREEN 5  // header
+#define PIN_CUE1_RED 4    // GPIO wired to the LED's red cathode
+#define PIN_CUE1_GREEN 5  // GPIO wired to the LED's green cathode
 #define PIN_CUE2_RED 6    // header
 #define PIN_CUE2_GREEN 7  // header
 
@@ -69,6 +69,12 @@
 #define STATUS_LED_ON HIGH
 #define STATUS_LED_OFF LOW
 #endif
+
+// Cue RGB lamps are common-anode: GPIO sinks current, LOW = color on.
+// If OLED says RED but the LED shows green (or vice versa), swap the two
+// PIN_CUE*_RED / PIN_CUE*_GREEN values for that cue — not LAMP_ON/LAMP_OFF.
+#define LAMP_ON LOW
+#define LAMP_OFF HIGH
 
 #define CUE_COUNT 2
 #define CUE_NUMBER_1 1

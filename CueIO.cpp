@@ -28,8 +28,8 @@ const CueIO::CueChannel* CueIO::cueByNumber(uint8_t cueNumber) const {
 }
 
 void CueIO::applyOutputs(CueChannel& cue) {
-  digitalWrite(cue.redPin, cue.state == CUE_STATE_RED ? HIGH : LOW);
-  digitalWrite(cue.greenPin, cue.state == CUE_STATE_GREEN ? HIGH : LOW);
+  digitalWrite(cue.redPin, cue.state == CUE_STATE_RED ? LAMP_ON : LAMP_OFF);
+  digitalWrite(cue.greenPin, cue.state == CUE_STATE_GREEN ? LAMP_ON : LAMP_OFF);
 }
 
 void CueIO::updateStatusLed() {
