@@ -10,13 +10,14 @@ void CueLora::configure(bool, uint8_t, uint16_t, uint16_t) {}
 void CueLora::loop() {}
 void CueLora::sendState() {}
 bool CueLora::takeReceived(CueSnapshot&) { return false; }
+uint8_t CueLora::countHeard() const { return 0; }
 void CueLora::end() {}
 bool CueLora::begin() { return false; }
 void CueLora::applyFrequency() {}
 void CueLora::startRx() {}
 void CueLora::serviceRx() {}
 void CueLora::pack(uint8_t*) const {}
-bool CueLora::unpack(const uint8_t*, CueSnapshot&) const { return false; }
+bool CueLora::unpack(const uint8_t*, CueSnapshot&, uint16_t*) const { return false; }
 unsigned long CueLora::beaconJitter() const { return 0; }
 
 #else
@@ -82,14 +83,15 @@ void CueLora::pack(uint8_t* buf) const {
   buf[7] = cueIO.getCueState(CUE_NUMBER_2);
   writeU32(buf + 8, cueIO.getCueSeq(CUE_NUMBER_1));
   writeU32(buf + 12, cueIO.getCueSeq(CUE_NUMBER_2));
-  writeU16(buf + 16, crc16(buf, 16));
+  writeU16(buf + 16, _selfId);
+  writeU16(buf + 18, crc16(buf, 18));
 }
 
-bool CueLora::unpack(const uint8_t* buf, CueSnapshot& out) const {
+bool CueLora::unpack(const uint8_t* buf, CueSnapshot& out, uint16_t* nodeId) const {
   if (buf[0] != LORA_MAGIC || buf[1] != LORA_VERSION) {
     return false;
   }
-  if (readU16(buf + 16) != crc16(buf, 16)) {
+  if (readU16(buf + 18) != crc16(buf, 18)) {
     return false;
   }
 
@@ -99,6 +101,9 @@ bool CueLora::unpack(const uint8_t* buf, CueSnapshot& out) const {
   out.cue2 = buf[7];
   out.seq1 = readU32(buf + 8);
   out.seq2 = readU32(buf + 12);
+  if (nodeId != nullptr) {
+    *nodeId = readU16(buf + 16);
+  }
 
   if (out.cue1 > CUE_STATE_GREEN || out.cue2 > CUE_STATE_GREEN) {
     return false;
@@ -149,14 +154,16 @@ void CueLora::serviceRx() {
   }
 
   CueSnapshot snap;
-  if (!unpack(buf, snap)) {
+  uint16_t nodeId = 0;
+  if (!unpack(buf, snap, &nodeId)) {
     return;
   }
 
+  touchHeard(nodeId);
   _pending = snap;
   _hasPending = true;
-  Serial.printf_P(PSTR("LoRa: rx cue1=%u seq1=%u cue2=%u seq2=%u\r\n"),
-                  snap.cue1, snap.seq1, snap.cue2, snap.seq2);
+  Serial.printf_P(PSTR("LoRa: rx id=%04X cue1=%u seq1=%u cue2=%u seq2=%u\r\n"),
+                  nodeId, snap.cue1, snap.seq1, snap.cue2, snap.seq2);
 }
 
 bool CueLora::begin() {
@@ -175,6 +182,11 @@ bool CueLora::begin() {
 
   radio.setDio2AsRfSwitch(true);
   radio.setCRC(2);
+
+  uint8_t mac[6] = {0};
+  cueWifiMacAddress(mac);
+  _selfId = ((uint16_t)mac[4] << 8) | mac[5];
+  clearHeard();
 
   _ready = true;
   _hasPending = false;
@@ -197,6 +209,7 @@ void CueLora::end() {
   radio.sleep(true);
   _ready = false;
   _hasPending = false;
+  clearHeard();
   Serial.print(F("LoRa stopped."));
   Serial.print(LINE_END);
 }
@@ -278,6 +291,7 @@ void CueLora::loop() {
   }
 
   serviceRx();
+  expireHeard();
 
   const unsigned long now = millis();
   if (_nextBeaconMs == 0) {
@@ -286,6 +300,57 @@ void CueLora::loop() {
   }
   if ((long)(now - _nextBeaconMs) >= 0) {
     sendState();
+  }
+}
+
+uint8_t CueLora::countHeard() const {
+  uint8_t n = 0;
+  for (const auto& e : _heard) {
+    if (e.valid) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+void CueLora::clearHeard() {
+  for (auto& e : _heard) {
+    e.valid = false;
+    e.id = 0;
+    e.lastSeenMs = 0;
+  }
+}
+
+void CueLora::touchHeard(uint16_t id) {
+  if (id == 0 || id == _selfId) {
+    return;
+  }
+
+  const unsigned long now = millis();
+  for (auto& e : _heard) {
+    if (e.valid && e.id == id) {
+      e.lastSeenMs = now;
+      return;
+    }
+  }
+  for (auto& e : _heard) {
+    if (!e.valid) {
+      e.valid = true;
+      e.id = id;
+      e.lastSeenMs = now;
+      Serial.printf_P(PSTR("LoRa: peer %04X\r\n"), id);
+      return;
+    }
+  }
+}
+
+void CueLora::expireHeard() {
+  const unsigned long now = millis();
+  for (auto& e : _heard) {
+    if (e.valid && (now - e.lastSeenMs) > LORA_HEARD_STALE_MS) {
+      Serial.printf_P(PSTR("LoRa: peer %04X stale\r\n"), e.id);
+      e.valid = false;
+    }
   }
 }
 

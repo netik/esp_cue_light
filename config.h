@@ -179,9 +179,15 @@
 #define LORA_PREAMBLE_LEN 8
 #define LORA_BEACON_MS 5000
 #define LORA_CAD_BACKOFF_MS 20
-#define LORA_PACKET_LEN 18
+#define LORA_PACKET_LEN 20
 #define LORA_MAGIC 0xC1
-#define LORA_VERSION 1
+#define LORA_VERSION 2
+#define LORA_HEARD_MAX 8
+#define LORA_HEARD_STALE_MS 20000
+#endif
+
+#ifndef LORA_HEARD_MAX
+#define LORA_HEARD_MAX 8
 #endif
 
 #define LINE_END "\r\n"

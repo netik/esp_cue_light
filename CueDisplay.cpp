@@ -98,6 +98,84 @@ void sendCmd(uint8_t cmd) {
   Wire.endTransmission();
 }
 
+bool probeOled() {
+  Wire.beginTransmission(OLED_I2C_ADDR);
+  return Wire.endTransmission() == 0;
+}
+
+void pulseOledReset() {
+  pinMode(PIN_OLED_RST, OUTPUT);
+  digitalWrite(PIN_OLED_RST, HIGH);
+  delay(5);
+  digitalWrite(PIN_OLED_RST, LOW);
+  delay(20);
+  digitalWrite(PIN_OLED_RST, HIGH);
+  delay(50);
+}
+
+void sendOledInit() {
+  sendCmd(0xAE);
+  sendCmd(0xD5);
+  sendCmd(0x80);
+  sendCmd(0xA8);
+  sendCmd(0x3F);
+  sendCmd(0xD3);
+  sendCmd(0x00);
+  sendCmd(0x40);
+  sendCmd(0x8D);
+  sendCmd(0x14);
+  sendCmd(0x20);
+  sendCmd(0x00);
+  sendCmd(0xA1);
+  sendCmd(0xC8);
+  sendCmd(0xDA);
+  sendCmd(0x12);
+  sendCmd(0x81);
+  sendCmd(0xCF);
+  sendCmd(0xD9);
+  sendCmd(0xF1);
+  sendCmd(0xDB);
+  sendCmd(0x40);
+  sendCmd(0xA4);
+  sendCmd(0xA6);
+  sendCmd(0xAF);
+}
+
+bool initOled(bool coldStart) {
+  // Vext is active LOW. After RST or deep-sleep the rail may still be off
+  // or the SSD1306 may NACK the first I2C probe — retry instead of giving up.
+  pinMode(PIN_VEXT, OUTPUT);
+  digitalWrite(PIN_VEXT, LOW);
+  if (coldStart) {
+    delay(150);
+  }
+
+  pulseOledReset();
+
+  const uint8_t attempts = coldStart ? 5 : 1;
+  for (uint8_t attempt = 0; attempt < attempts; ++attempt) {
+    if (attempt > 0) {
+      Wire.end();
+      delay(40);
+      pulseOledReset();
+    }
+
+    Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
+    Wire.setClock(100000);
+
+    if (!probeOled()) {
+      Serial.printf_P(PSTR("OLED probe failed (try %u)\r\n"), attempt + 1);
+      continue;
+    }
+
+    sendOledInit();
+    Wire.setClock(400000);
+    return true;
+  }
+
+  return false;
+}
+
 void setPixel(int x, int y, bool on) {
   if (x < 0 || x >= kWidth || y < 0 || y >= 64) {
     return;
@@ -173,53 +251,6 @@ void flush() {
 }
 
 void clear() { memset(g_buf, 0, sizeof(g_buf)); }
-
-bool initOled() {
-  pinMode(PIN_VEXT, OUTPUT);
-  digitalWrite(PIN_VEXT, LOW);
-  delay(80);
-
-  pinMode(PIN_OLED_RST, OUTPUT);
-  digitalWrite(PIN_OLED_RST, LOW);
-  delay(20);
-  digitalWrite(PIN_OLED_RST, HIGH);
-  delay(20);
-
-  Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
-  Wire.setClock(400000);
-
-  Wire.beginTransmission(OLED_I2C_ADDR);
-  if (Wire.endTransmission() != 0) {
-    return false;
-  }
-
-  sendCmd(0xAE);
-  sendCmd(0xD5);
-  sendCmd(0x80);
-  sendCmd(0xA8);
-  sendCmd(0x3F);
-  sendCmd(0xD3);
-  sendCmd(0x00);
-  sendCmd(0x40);
-  sendCmd(0x8D);
-  sendCmd(0x14);
-  sendCmd(0x20);
-  sendCmd(0x00);
-  sendCmd(0xA1);
-  sendCmd(0xC8);
-  sendCmd(0xDA);
-  sendCmd(0x12);
-  sendCmd(0x81);
-  sendCmd(0xCF);
-  sendCmd(0xD9);
-  sendCmd(0xF1);
-  sendCmd(0xDB);
-  sendCmd(0x40);
-  sendCmd(0xA4);
-  sendCmd(0xA6);
-  sendCmd(0xAF);
-  return true;
-}
 
 int voltageToPercent(float volts) {
   struct Pt {
@@ -360,19 +391,33 @@ void drawNodeIcon(int x, int y) {
   fillRect(x + 6, y + 4, 3, 3, true);
 }
 
+// 7x7 radio mast with two wave arcs. Same row as the node icon, one glyph wide.
+void drawLoraIcon(int x, int y) {
+  fillRect(x, y, 1, 6, true);
+  fillRect(x, y + 6, 3, 1, true);
+  setPixel(x + 2, y + 1, true);
+  setPixel(x + 3, y + 2, true);
+  setPixel(x + 2, y + 3, true);
+  setPixel(x + 4, y, true);
+  setPixel(x + 5, y + 1, true);
+  setPixel(x + 6, y + 2, true);
+  setPixel(x + 5, y + 3, true);
+  setPixel(x + 4, y + 4, true);
+}
+
 void drawPeerCount(uint8_t peers, bool lora) {
   char text[4];
   snprintf(text, sizeof(text), "%u", peers);
   const int textW = (int)strlen(text) * 6;
   const int iconW = 9;
   const int gap = 2;
-  const int loraW = lora ? 4 * 6 : 0;
+  const int loraW = lora ? 7 : 0;
   const int iconX = kWidth - iconW;
   const int textX = iconX - gap - textW;
   const int y = 10;
 
   if (lora) {
-    drawText(textX - gap - loraW, y, "LORA", true);
+    drawLoraIcon(textX - gap - loraW, y);
   }
   drawText(textX, y, text, true);
   drawNodeIcon(iconX, y);
@@ -405,7 +450,7 @@ void drawCueBox(int x, int w, uint8_t cueNumber, uint8_t state) {
 }  // namespace
 
 void cueDisplayBegin() {
-  g_ready = initOled();
+  g_ready = initOled(true);
   if (!g_ready) {
     Serial.print(F("OLED not found; continuing without display."));
     Serial.print(LINE_END);
@@ -462,7 +507,18 @@ void cueDisplayPowerDown() {
 
 void cueDisplayRefresh() {
   if (!g_ready) {
-    return;
+    static uint8_t recoverTries = 0;
+    if (recoverTries < 8) {
+      ++recoverTries;
+      g_ready = initOled(false);
+      if (g_ready) {
+        Serial.print(F("OLED recovered."));
+        Serial.print(LINE_END);
+      }
+    }
+    if (!g_ready) {
+      return;
+    }
   }
 
   clear();
@@ -482,7 +538,7 @@ void cueDisplayRefresh() {
     snprintf(ipLine, sizeof(ipLine), "NO WIFI");
   }
   drawText(0, 10, ipLine, true);
-  drawPeerCount(peerSync.countPeers(), cueLora.isReady());
+  drawPeerCount(peerSync.countPeers() + cueLora.countHeard(), cueLora.isReady());
 
 #if CUE_LOCAL == CUE_LOCAL_ALL
   drawCueBox(0, 62, CUE_NUMBER_1, cueIO.getCueState(CUE_NUMBER_1));

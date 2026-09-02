@@ -250,6 +250,8 @@ void setup() {
 
 #ifdef CUE_BOARD_HELTEC_V3
   CueIO::releaseSleepHolds();
+  pinMode(PIN_VEXT, OUTPUT);
+  digitalWrite(PIN_VEXT, LOW);
   const bool wokeFromSleep =
       esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0;
 #else

@@ -75,7 +75,7 @@ FQBN: `esp8266:esp8266:nodemcuv2` (4 MB flash, 2 MB LittleFS).
 
 FQBN: `esp32:esp32:heltec_wifi_lora_32_V3`. Selecting this board (or `-DBOARD_HELTEC_V3`) switches pins, LED polarity, and enables the OLED.
 
-The 0.96" display shows **Cue 1** as one full-width box (`CUE_LOCAL_ONE` — Heltec has only the PRG button). IP and battery sit in the header. **LORA** appears left of the peer count when Enable LoRa is on. A short **PRG** press toggles Cue 1. Hold **PRG for 3 seconds** to power off (OLED shows `-OFF-`, then deep sleep). A short press wakes the board. USB charging still works while asleep. The onboard LED (GPIO 35) follows Cue 1 (on = green). Set `CUE_LOCAL` in `config.h` to `CUE_LOCAL_ALL` (two boxes) or `CUE_LOCAL_TWO` (Cue 2 only; PRG maps to Cue 2).
+The 0.96" display shows **Cue 1** as one full-width box (`CUE_LOCAL_ONE` — Heltec has only the PRG button). IP and battery sit in the header. A small radio icon appears left of the peer count when Enable LoRa is on. A short **PRG** press toggles Cue 1. Hold **PRG for 3 seconds** to power off (OLED shows `-OFF-`, then deep sleep). A short press wakes the board. USB charging still works while asleep. The onboard LED (GPIO 35) follows Cue 1 (on = green). Set `CUE_LOCAL` in `config.h` to `CUE_LOCAL_ALL` (two boxes) or `CUE_LOCAL_TWO` (Cue 2 only; PRG maps to Cue 2).
 
 | Function         | GPIO | Notes |
 |------------------|------|--------|

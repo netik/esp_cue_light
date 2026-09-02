@@ -204,19 +204,20 @@ zeroconf.close()
 
 ## LoRa transport (Heltec V3)
 
-Heltec boards with **Enable LoRa** on `/setup` send the same snapshot as `/api/cues` in an 18-byte broadcast packet. There is no mDNS or HTTP on the air.
+Heltec boards with **Enable LoRa** on `/setup` send the same snapshot as `/api/cues` in a 20-byte broadcast packet. There is no mDNS or HTTP on the air. Each packet includes a 16-bit node id (last two MAC bytes) so boards can count recently heard radios on the OLED.
 
 ```
 offset  size  field
 0       1     magic (0xC1)
-1       1     version (1)
+1       1     version (2)
 2–3     2     system_id (little-endian)
 4–5     2     cue_group (little-endian)
 6       1     cue1
 7       1     cue2
 8–11    4     seq1 (little-endian)
 12–15   4     seq2 (little-endian)
-16–17   2     CRC-16/CCITT of bytes 0–15
+16–17   2     node_id (MAC bytes 4–5, big-endian)
+18–19   2     CRC-16/CCITT of bytes 0–17
 ```
 
 Receivers apply the packet with the same sequence rules as HTTP. A board that is on WiFi **and** LoRa relays:
