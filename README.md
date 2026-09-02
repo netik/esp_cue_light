@@ -18,7 +18,7 @@ Board A  ←—— mDNS (_cuelight._tcp) ——→  Board B
          ←—— POST /api/cues on button press
          ←—— GET /api/cues every 500 ms (fallback)
 
-Heltec (Enable LoRa)  ←—— 18-byte LoRa packet @ 915 MHz ——→  Heltec
+Heltec (Enable LoRa)  ←—— 20-byte LoRa packet @ 915 MHz ——→  Heltec
          (same CueSnapshot; relays to WiFi when STA is up)
 ```
 

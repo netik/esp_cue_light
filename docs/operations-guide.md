@@ -37,9 +37,10 @@ After changing System ID or Cue Group, boards only sync with peers sharing the s
 Heltec serial when LoRa starts:
 
 ```
-LoRa ready: 915.0 MHz ch=0 SF7 system_id=1 cue_group=1
+LoRa ready: 915.0 MHz ch=0 SF7 id=A1B2 system_id=1 cue_group=1
 LoRa: tx
-LoRa: rx cue1=1 seq1=3 cue2=0 seq2=0
+LoRa: rx id=C3D4 cue1=1 seq1=3 cue2=0 seq2=0
+LoRa: peer C3D4
 ```
 
 ---

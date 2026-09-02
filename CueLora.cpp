@@ -145,11 +145,10 @@ void CueLora::serviceRx() {
   }
   g_rxFlag = false;
 
-  const size_t len = radio.getPacketLength();
   uint8_t buf[LORA_PACKET_LEN];
   const int16_t state = radio.readData(buf, LORA_PACKET_LEN);
   startRx();
-  if (state != RADIOLIB_ERR_NONE || len != LORA_PACKET_LEN) {
+  if (state != RADIOLIB_ERR_NONE) {
     return;
   }
 
@@ -186,6 +185,12 @@ bool CueLora::begin() {
   uint8_t mac[6] = {0};
   cueWifiMacAddress(mac);
   _selfId = ((uint16_t)mac[4] << 8) | mac[5];
+  if (_selfId == 0) {
+    _selfId = (uint16_t)(ESP.getEfuseMac() & 0xFFFF);
+  }
+  if (_selfId == 0) {
+    _selfId = 1;
+  }
   clearHeard();
 
   _ready = true;
@@ -193,8 +198,8 @@ bool CueLora::begin() {
   _nextBeaconMs = millis() + LORA_BEACON_MS + beaconJitter();
   startRx();
 
-  Serial.printf_P(PSTR("LoRa ready: %.1f MHz ch=%u SF%u system_id=%u cue_group=%u\r\n"),
-                  freq, _channel, (unsigned)LORA_SF, _systemId, _cueGroup);
+  Serial.printf_P(PSTR("LoRa ready: %.1f MHz ch=%u SF%u id=%04X system_id=%u cue_group=%u\r\n"),
+                  freq, _channel, (unsigned)LORA_SF, _selfId, _systemId, _cueGroup);
   return true;
 }
 
@@ -322,7 +327,7 @@ void CueLora::clearHeard() {
 }
 
 void CueLora::touchHeard(uint16_t id) {
-  if (id == 0 || id == _selfId) {
+  if (id == _selfId) {
     return;
   }
 

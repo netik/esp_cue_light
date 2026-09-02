@@ -146,7 +146,7 @@ The response is parsed with the same logic as POST; cue states apply only when t
 
 Every board exposes identical state via HTTP. The dashboard, peer sync push/poll, and external scripts all use the same JSON schema. There is no separate sync channel.
 
-State JSON is built centrally by `PeerSync::buildStateJson()` and used by both the GET handler and push logic. Heltec LoRa packs the same fields into an 18-byte packet (`CueLora`); both paths call `PeerSync::applyIncomingState()`.
+State JSON is built centrally by `PeerSync::buildStateJson()` and used by both the GET handler and push logic. Heltec LoRa packs the same fields into a 20-byte packet (`CueLora`); both paths call `PeerSync::applyIncomingState()`.
 
 ---
 

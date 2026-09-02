@@ -216,7 +216,7 @@ offset  size  field
 7       1     cue2
 8–11    4     seq1 (little-endian)
 12–15   4     seq2 (little-endian)
-16–17   2     node_id (MAC bytes 4–5, big-endian)
+16–17   2     node_id (MAC bytes 4–5, little-endian)
 18–19   2     CRC-16/CCITT of bytes 0–17
 ```
 
