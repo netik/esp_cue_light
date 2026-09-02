@@ -2,7 +2,7 @@
 
 Practical steps for deploying, configuring, and troubleshooting cue-light boards on a show network.
 
-**Firmware:** v1.2.0
+**Firmware:** v1.3.0
 
 ---
 
@@ -11,9 +11,10 @@ Practical steps for deploying, configuring, and troubleshooting cue-light boards
 1. **Flash firmware** — `make upload-board1` / `make upload-both` for firmware only, or `make deploy-both` if LittleFS also needs updating.
 2. **Join WiFi** — connect each board via captive portal at `/setup`.
 3. **Set System ID and Cue Group** — must match across all boards that should sync.
-4. **Verify mDNS** — from a laptop on the same LAN, browse `_cuelight._tcp`.
-5. **Verify sync** — press a button on board A; board B should follow within **~300 ms**.
-6. **Confirm AP settings** — client isolation must be **off**.
+4. **Heltec LoRa (optional)** — check **Enable LoRa** and match **LoRa Channel** on every radio Heltec. One Heltec on WiFi with LoRa on will relay to NodeMCU HTTP peers.
+5. **Verify mDNS** — from a laptop on the same LAN, browse `_cuelight._tcp`.
+6. **Verify sync** — press a button on board A; board B should follow within **~300 ms**.
+7. **Confirm AP settings** — client isolation must be **off**.
 
 ---
 
@@ -26,10 +27,20 @@ Open `http://<board-ip>/setup` (or `http://192.168.4.1/setup` in AP mode).
 | WiFi SSID / password | LAN connectivity |
 | **System ID** | Isolates unrelated installations (default: 1) |
 | **Cue Group** | Sub-group within a system (default: 1) |
+| **Enable LoRa** | Heltec only. SX1262 at 915 MHz; default off |
+| **LoRa Channel** | Heltec only. Sub-band 0–7 (915.0 MHz + n × 0.2 MHz) |
 
 Settings persist in LittleFS at `/setup/config.json` and survive normal firmware updates. LittleFS uploads preserve `/setup/` automatically (see main README).
 
 After changing System ID or Cue Group, boards only sync with peers sharing the same values.
+
+Heltec serial when LoRa starts:
+
+```
+LoRa ready: 915.0 MHz ch=0 SF7 system_id=1 cue_group=1
+LoRa: tx
+LoRa: rx cue1=1 seq1=3 cue2=0 seq2=0
+```
 
 ---
 
@@ -42,7 +53,7 @@ On boot with WiFi connected:
 ```
 Peer sync filter: system_id=1 cue_group=1
 Peer sync ready: hostname=CueLight-8D22.local ip=192.168.1.42 system_id=1 cue_group=1
-Cue Light Webserver 1.1.2 at 192.168.1.42
+Cue Light Webserver 1.3.0 at 192.168.1.42
 ```
 
 After mDNS discovers a peer:
@@ -110,6 +121,9 @@ Expected:
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Cues work locally but never sync | System ID or Cue Group mismatch | Match values in `/setup` on all boards |
+| Heltec LoRa not transmitting | Enable LoRa off | Check **Enable LoRa** on `/setup`; serial should show `LoRa ready` |
+| Heltecs on LoRa don't sync | Channel mismatch | Match **LoRa Channel** (and System ID / Cue Group) |
+| NodeMCU follows Heltec LoRa slowly or never | No WiFi relay | Put at least one Heltec on the show LAN with Enable LoRa |
 | Cues work locally but never sync | WiFi client isolation | Disable isolation on the AP |
 | Cues work locally but never sync | Boards on different VLANs/subnets | Put all boards on the same L2 network |
 | Slow sync (~500 ms+) | Push failing; fallback poll only | Check serial for `push failed`; verify board-to-board HTTP on port 80 |
@@ -156,9 +170,11 @@ Expect `{"ok":1}` if sequences are newer than the board's current state.
 
 ## WiFi wipe (factory reset credentials)
 
-Hold **Cue 1 button** for **3 seconds** at boot to wipe saved WiFi credentials. The board restarts AP mode (`CueLight-XXXX` / password `123456789`).
+At boot, cue lamps blink red/green for **8 seconds**. Hold the primary button for **3 seconds** during that window to wipe saved WiFi credentials. The board starts AP mode (`CueLight-XXXX` / password `123456789`) immediately — it does not reconnect to the previous network.
 
-On **Heltec V3**, GPIO 0 (PRG) held *during reset* enters flash download mode instead. Power on without holding PRG; when the OLED splash appears, hold PRG for 3 seconds.
+On **Heltec V3**, GPIO 0 (PRG) held *during reset* enters flash download mode instead. Power on without holding PRG. When the OLED splash appears and the lamps blink, hold **PRG for 3 seconds**. (A 3-second hold *after* boot is power-off, not wipe.)
+
+ESP32 stores WiFi in NVS (not only `/credentials.bin`). Wipe clears that store so `/setup` comes back.
 
 ---
 

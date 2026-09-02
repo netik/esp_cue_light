@@ -12,7 +12,7 @@ arduino-cli core install esp8266:esp8266
 arduino-cli core install esp32:esp32
 
 echo "Ensuring project libraries are installed..."
-arduino-cli lib install "AsyncEspFsWebserver" "ESPAsyncTCP"
+arduino-cli lib install "AsyncEspFsWebserver" "ESPAsyncTCP" "RadioLib"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "${SCRIPT_DIR}/patch-asyncespfswebserver.sh"

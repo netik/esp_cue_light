@@ -1,6 +1,6 @@
 # Pinout
 
-Firmware pin map as of **v1.2.0**. Source of truth: `config.h`.
+Firmware pin map as of **v1.3.0**. Source of truth: `config.h`.
 
 Cue lamps are **common-anode RGB**. GPIO **LOW** turns a color on (current sink). Buttons are **active LOW** (to GND) with internal pull-up.
 
@@ -30,13 +30,13 @@ NodeMCU **3V3** feeds both RGB common anodes.
 
 Selected automatically with FQBN `esp32:esp32:heltec_wifi_lora_32_V3` (or `-DBOARD_HELTEC_V3`).
 
-Firmware default is `CUE_LOCAL_ONE`: OLED shows one full-width Cue 1 box; **PRG** toggles Cue 1. GPIO 2 (Cue 2 button) is unused. `CUE_LOCAL_TWO` remaps PRG to Cue 2; `CUE_LOCAL_ALL` restores both boxes and both buttons. WiFi wipe always uses the physical **PRG** button. Hold **PRG for 3 seconds** during normal operation to deep-sleep (`-OFF-`); a short press wakes.
+Firmware default is `CUE_LOCAL_ONE`: OLED shows one full-width Cue 1 box; **PRG** toggles Cue 1. GPIO 2 (Cue 2 button) is unused. `CUE_LOCAL_TWO` remaps PRG to Cue 2; `CUE_LOCAL_ALL` restores both boxes and both buttons. WiFi wipe always uses the physical **PRG** button (3 s hold while lamps blink at boot). Hold **PRG for 3 seconds** during normal operation to deep-sleep (`-OFF-`); a short press wakes.
 
 ### Cue I/O (header)
 
 | Function | GPIO | Notes |
 |----------|------|--------|
-| Cue 1 button | 0 | Onboard **PRG**. Active LOW. WiFi wipe: after OLED splash, hold 3 s. Do not hold at reset (flash download). `CUE_LOCAL_TWO` maps this pin to Cue 2 instead. |
+| Cue 1 button | 0 | Onboard **PRG**. Active LOW. WiFi wipe: after OLED splash, hold 3 s while lamps blink (8 s window). Do not hold at reset (flash download). After boot, 3 s hold is power-off. `CUE_LOCAL_TWO` maps this pin to Cue 2 instead. |
 | Cue 2 button | 2 | Header; unused unless `CUE_LOCAL_ALL` (or `CUE_LOCAL_TWO`, which maps Cue 1 onto this pin) |
 | Cue 1 red | 4 | RGB cathode; LOW = on |
 | Cue 1 green | 5 | RGB cathode; LOW = on |
@@ -59,17 +59,24 @@ GPIO 4–7 are consecutive header pins, free of LoRa, OLED, and USB. Heltec **3V
 | UART0 TX | 43 | USB serial (CP2102) |
 | UART0 RX | 44 | USB serial (CP2102) |
 
+### Onboard LoRa (SX1262)
+
+Firmware owns these pins. RadioLib talks to the SX1262 when **Enable LoRa** is on in `/setup`. Do not wire lamps or buttons here. Frequency is **915.0 MHz** plus `LoRa Channel` × 0.2 MHz (channel 0–7). DIO2 is used internally as the RF switch (not a header GPIO).
+
+| GPIO | LoRa signal |
+|------|-------------|
+| 8 | NSS (SPI CS). Held HIGH in power-off. |
+| 9 | SCK |
+| 10 | MOSI |
+| 11 | MISO |
+| 12 | RESET. Held LOW in power-off. |
+| 13 | BUSY |
+| 14 | DIO1 (packet IRQ) |
+
 ### Do not use
 
 | GPIO | Taken by |
 |------|----------|
-| 8 | LoRa NSS (SPI CS) |
-| 9 | LoRa SCK |
-| 10 | LoRa MOSI |
-| 11 | LoRa MISO |
-| 12 | LoRa RESET |
-| 13 | LoRa BUSY |
-| 14 | LoRa DIO1 |
 | 19 | USB D− |
 | 20 | USB D+ |
 | 45, 46 | Strapping pins |

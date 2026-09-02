@@ -1,6 +1,7 @@
 #include "CueIO.h"
 
 #include "CueDisplay.h"
+#include "CueLora.h"
 #include "PeerSync.h"
 
 #ifdef CUE_BOARD_HELTEC_V3
@@ -308,6 +309,8 @@ void CueIO::enterPowerOff() {
   WiFi.disconnect(true, false);
   WiFi.mode(WIFI_OFF);
   esp_wifi_stop();
+
+  cueLora.end();
 
   pinMode(PIN_LORA_RST, OUTPUT);
   digitalWrite(PIN_LORA_RST, LOW);

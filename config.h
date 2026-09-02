@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#define FIRMWARE_VERSION "1.2.0"
+#define FIRMWARE_VERSION "1.3.0"
 
 // Heltec WiFi LoRa 32 V3 (ESP32-S3) is auto-selected when that FQBN/variant
 // is used. Override with -DBOARD_HELTEC_V3 for a generic ESP32-S3 FQBN.
@@ -62,9 +62,15 @@
 #define PIN_ADC_CTRL 37   // drive LOW to connect the VBAT divider
 #define VBAT_DIVIDER 4.9f // schematic: 100k / (100k+390k)
 
-#define PIN_LORA_NSS 8   // held HIGH in power-off so the radio stays quiet
-#define PIN_LORA_RST 12  // held LOW in power-off (chip reset)
+#define PIN_LORA_NSS 8
+#define PIN_LORA_SCK 9
+#define PIN_LORA_MOSI 10
+#define PIN_LORA_MISO 11
+#define PIN_LORA_RST 12
+#define PIN_LORA_BUSY 13
+#define PIN_LORA_DIO1 14
 
+#define CUE_HAS_LORA 1
 #define CUE_BOARD_LABEL "Heltec WiFi LoRa 32 V3"
 #else
 // NodeMCU v2 (ESP8266) — pin labels in comments.
@@ -84,6 +90,7 @@
 #define STATUS_LED_ACTIVE_LOW 1
 
 #define CUE_HAS_OLED 0
+#define CUE_HAS_LORA 0
 #define CUE_BOARD_LABEL "NodeMCU v2"
 #endif
 
@@ -155,8 +162,27 @@
 
 #define WIFI_CREDENTIALS_FILE "/credentials.bin"
 #define WIFI_WIPE_HOLD_MS 3000
+#define WIFI_WIPE_WINDOW_MS 8000
 #define POWER_OFF_HOLD_MS 3000
 #define CUE_DFM_BLINK_MS 250
+
+#if CUE_HAS_LORA
+#define LORA_FREQUENCY_MHZ 915.0f
+#define LORA_CHANNEL_STEP_MHZ 0.2f
+#define LORA_CHANNEL_MAX 7
+#define LORA_SF 7
+#define LORA_BW_KHZ 125.0f
+#define LORA_CR 5
+#define LORA_SYNC_WORD 0xC1
+#define LORA_POWER_DBM 14
+#define LORA_TCXO_VOLTS 1.8f
+#define LORA_PREAMBLE_LEN 8
+#define LORA_BEACON_MS 5000
+#define LORA_CAD_BACKOFF_MS 20
+#define LORA_PACKET_LEN 18
+#define LORA_MAGIC 0xC1
+#define LORA_VERSION 1
+#endif
 
 #define LINE_END "\r\n"
 #define LINE_END_LEN 2

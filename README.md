@@ -1,15 +1,15 @@
 # Cue Light Webserver
 
-Firmware for a two-cue light controller with a web dashboard, WiFi setup portal, and **peer sync** across boards on the same LAN.
+Firmware for a two-cue light controller with a web dashboard, WiFi setup portal, and **peer sync** across boards on the same LAN. Heltec V3 boards can also enable **LoRa** (915 MHz) as a second transport and automatically relay between LoRa and WiFi.
 
 Supported boards:
 
 - **NodeMCU v2** (ESP8266)
 - **Heltec WiFi LoRa 32 V3** (ESP32-S3, OLED) — the Meshtastic-style Heltec V3
 
-Press a button on any board to toggle a cue red/green locally. That change **POSTs immediately** to every other board in the same **System ID** and **Cue Group** (~100–300 ms). Background polling catches anything missed. NodeMCU and Heltec boards can mix in the same group.
+Press a button on any board to toggle a cue red/green locally. That change **POSTs immediately** to every other board in the same **System ID** and **Cue Group** (~100–300 ms). Background polling catches anything missed. NodeMCU and Heltec boards can mix in the same group. A Heltec with **Enable LoRa** on also broadcasts the same snapshot over SX1262; if that board is on WiFi, it relays LoRa state to HTTP peers and WiFi state to LoRa.
 
-**Firmware version:** 1.2.0
+**Firmware version:** 1.3.0
 
 ## How sync works
 
@@ -17,12 +17,16 @@ Press a button on any board to toggle a cue red/green locally. That change **POS
 Board A  ←—— mDNS (_cuelight._tcp) ——→  Board B
          ←—— POST /api/cues on button press
          ←—— GET /api/cues every 500 ms (fallback)
+
+Heltec (Enable LoRa)  ←—— 18-byte LoRa packet @ 915 MHz ——→  Heltec
+         (same CueSnapshot; relays to WiFi when STA is up)
 ```
 
 1. Each board advertises itself on the LAN via LEAmDNS.
 2. On button press, the board **POSTs** state to all known peers immediately.
 3. Background **GET** polling every 500 ms catches missed pushes and late joiners.
 4. Per-cue **sequence numbers** resolve conflicts — highest seq wins.
+5. Heltec only: if **Enable LoRa** is on in `/setup`, the same snapshot is TX'd on SX1262 (and beaconed every ~5 s). WiFi apply is forwarded to LoRa; LoRa apply is POSTed to HTTP peers.
 
 Full design details: **[docs/peer-sync-architecture.md](./docs/peer-sync-architecture.md)**
 
@@ -37,7 +41,8 @@ make upload-heltec PORT=/dev/cu.usbserial-XXXX
 
 1. Power boards and connect them to your show WiFi via `/setup`.
 2. Set the same **System ID** and **Cue Group** on every board (defaults: `1` / `1`).
-3. Press a button on one board — others should follow within **~300 ms**.
+3. On Heltec boards that should use radio: check **Enable LoRa** (and match **LoRa Channel**).
+4. Press a button on one board — others should follow within **~300 ms**.
 
 First-time flash also needs LittleFS once so `/index.htm` exists on disk:
 
@@ -70,7 +75,7 @@ FQBN: `esp8266:esp8266:nodemcuv2` (4 MB flash, 2 MB LittleFS).
 
 FQBN: `esp32:esp32:heltec_wifi_lora_32_V3`. Selecting this board (or `-DBOARD_HELTEC_V3`) switches pins, LED polarity, and enables the OLED.
 
-The 0.96" display shows **Cue 1** as one full-width box (`CUE_LOCAL_ONE` — Heltec has only the PRG button). IP and battery sit in the header. A short **PRG** press toggles Cue 1. Hold **PRG for 3 seconds** to power off (OLED shows `-OFF-`, then deep sleep). A short press wakes the board. USB charging still works while asleep. The onboard LED (GPIO 35) follows Cue 1 (on = green). Set `CUE_LOCAL` in `config.h` to `CUE_LOCAL_ALL` (two boxes) or `CUE_LOCAL_TWO` (Cue 2 only; PRG maps to Cue 2).
+The 0.96" display shows **Cue 1** as one full-width box (`CUE_LOCAL_ONE` — Heltec has only the PRG button). IP and battery sit in the header. **LORA** appears next to the title when Enable LoRa is on. A short **PRG** press toggles Cue 1. Hold **PRG for 3 seconds** to power off (OLED shows `-OFF-`, then deep sleep). A short press wakes the board. USB charging still works while asleep. The onboard LED (GPIO 35) follows Cue 1 (on = green). Set `CUE_LOCAL` in `config.h` to `CUE_LOCAL_ALL` (two boxes) or `CUE_LOCAL_TWO` (Cue 2 only; PRG maps to Cue 2).
 
 | Function         | GPIO | Notes |
 |------------------|------|--------|
@@ -82,7 +87,7 @@ The 0.96" display shows **Cue 1** as one full-width box (`CUE_LOCAL_ONE` — Hel
 | Cue 2 green lamp | 7    | Header |
 | Status LED      | 35   | Onboard, **active HIGH** |
 
-GPIO 4–7 are consecutive user pins on the header and are free of LoRa, OLED, and USB.
+GPIO 4–7 are consecutive user pins on the header and are free of LoRa, OLED, and USB. Firmware uses GPIO **8–14** for the onboard SX1262 when **Enable LoRa** is on (`CueLora.cpp` / RadioLib).
 
 **Do not use** for lamps or buttons:
 
@@ -100,7 +105,7 @@ GPIO 4–7 are consecutive user pins on the header and are free of LoRa, OLED, a
 
 Spare header GPIOs if you need to reassign lamps: **47** and **48**.
 
-**WiFi wipe on Heltec:** GPIO 0 held at reset enters flash download mode. Power the board *without* holding PRG. When the OLED shows the splash, hold **PRG for 3 seconds** to wipe WiFi.
+**WiFi wipe on Heltec:** GPIO 0 held at reset enters flash download mode. Power the board *without* holding PRG. When the OLED splash appears and the lamps blink, hold **PRG for 3 seconds** to wipe WiFi (clears ESP32 NVS and starts the setup AP). After boot, a 3-second PRG hold is power-off, not wipe.
 
 Heltec firmware seeds `/index.htm` on first boot, so a separate LittleFS upload is not required.
 
@@ -114,6 +119,7 @@ Heltec firmware seeds `/index.htm` on first boot, so a separate LittleFS upload 
   - `ESPAsyncTCP` (ESP8266)
   - `ESP32Async/AsyncTCP` (ESP32)
   - `ESP32Async/ESPAsyncWebServer` (fork; setup script replaces stock library)
+  - `RadioLib` (Heltec SX1262)
 
 Core libraries used by peer sync (bundled with the cores, no extra install):
 
@@ -198,12 +204,12 @@ The dashboard at `/index.htm` is also embedded in firmware (`DashboardHtml.h`) a
    - **SSID:** `CueLight-XXXX` (last two bytes of MAC)
    - **Password:** `123456789`
 3. Join that network. Captive portal should open; otherwise go to `http://192.168.4.1/setup`.
-4. Choose your WiFi network. Set **System ID** and **Cue Group** (defaults: both `1`).
+4. Choose your WiFi network. Set **System ID** and **Cue Group** (defaults: both `1`). On Heltec, optionally check **Enable LoRa** and set **LoRa Channel** (0–7, default 0) so radio peers share a 915 MHz sub-band.
 5. Save. Note the station IP from the serial monitor.
 
 Config is stored at `/setup/config.json` on LittleFS.
 
-**WiFi wipe:** hold the Cue 1 button for 3 seconds at boot (NodeMCU: D1). On Heltec, wait for the OLED splash, then hold **PRG**.
+**WiFi wipe:** at boot, lamps blink for 8 seconds — hold the Cue 1 button for 3 seconds in that window (NodeMCU: D1). On Heltec, wait for the OLED splash, then hold **PRG** while the lamps blink. After boot, Heltec PRG-hold is power-off.
 
 ### Expected serial output (station mode)
 
@@ -227,7 +233,7 @@ All URLs are on port **80**. Replace `{host}` with the board IP or `192.168.4.1`
 | `/` | Dashboard (redirects to `/index.htm` or `/setup`) |
 | `/index.htm` | Live cue status — polls `/api/cues` every second |
 | `/api/cues` | JSON state — `GET` to read, `POST` to push (peer sync) |
-| `/setup` | WiFi credentials, System ID, Cue Group |
+| `/setup` | WiFi credentials, System ID, Cue Group; Heltec: Enable LoRa, LoRa Channel |
 
 **`/api/cues` example:**
 
@@ -275,11 +281,12 @@ avahi-browse -rt _cuelight._tcp   # Linux
 
 ```
 cue_light_webserver.ino   Main sketch — WiFi, web server, API
-config.h                  Pins, board select, defaults, peer-sync timing
+config.h                  Pins, board select, defaults, peer-sync timing, LoRa RF
 CueIO.*                   Buttons, lamp outputs, sequence numbers
 CueDisplay.*              Heltec OLED status (no-op on NodeMCU)
+CueLora.*                 Heltec SX1262 transport (stubs on NodeMCU)
 PlatformCompat.h          ESP8266 / ESP32 WiFi, mDNS, HTTP shims
-PeerSync.*                mDNS discovery, HTTP POST push, GET polling
+PeerSync.*                mDNS discovery, HTTP POST push, GET polling, LoRa relay
 DashboardHtml.h           Embedded dashboard (seeded to LittleFS)
 data/index.htm            Dashboard source (uploaded to LittleFS)
 docs/                     Architecture, protocol, operations
@@ -294,7 +301,7 @@ scripts/
 
 | Symptom | Fix |
 |---------|-----|
-| Cues work locally but don't sync | Match System ID and Cue Group on all boards. Disable WiFi client isolation. See [operations guide](./docs/operations-guide.md). |
+| Cues work locally but don't sync | Match System ID and Cue Group on all boards. Disable WiFi client isolation. Heltec LoRa: Enable LoRa and match channel. See [operations guide](./docs/operations-guide.md). |
 | `Peer sync unavailable` on boot | Normal in AP mode. Connect to show WiFi. |
 | Slow sync (~500 ms+) | Check serial for `push failed`; see [operations guide](./docs/operations-guide.md). |
 | `/` opens setup, not dashboard | Run `make littlefs-board1` (or `-board2`) once. |

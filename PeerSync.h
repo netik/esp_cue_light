@@ -3,6 +3,17 @@
 #include "PlatformCompat.h"
 #include "config.h"
 
+struct CueSnapshot {
+  uint16_t systemId = 0;
+  uint16_t cueGroup = 0;
+  uint8_t cue1 = 0;
+  uint8_t cue2 = 0;
+  uint32_t seq1 = 0;
+  uint32_t seq2 = 0;
+};
+
+enum class CueTransport : uint8_t { Wifi, Lora };
+
 class PeerSync {
 public:
   bool begin();
@@ -10,7 +21,9 @@ public:
   void setNetworkFilter(uint16_t systemId, uint16_t cueGroup);
   void notifyLocalChange();
   bool applyIncomingJson(const char* json);
+  bool applyIncomingState(const CueSnapshot& snap, CueTransport source);
   void buildStateJson(char* buffer, size_t size) const;
+  void fillSnapshot(CueSnapshot& snap) const;
   uint8_t countPeers() const;
 #ifndef ARDUINO_ARCH_ESP32
   void handleMdnsAnswer(MDNSResponder::MDNSServiceInfo& serviceInfo,
@@ -18,8 +31,6 @@ public:
 #endif
 
 private:
-  enum class ApplySource : uint8_t { Push, Poll };
-
   struct PeerEntry {
     IPAddress ip;
     unsigned long lastSeenMs;
@@ -36,6 +47,7 @@ private:
   bool _ready = false;
   bool _pushPending = false;
   bool _pushDeferred = false;
+  bool _loraForwardPending = false;
   char _pushJson[128];
   uint8_t _pushScanIndex = 0;
   uint8_t _pushRemaining = 0;
@@ -64,7 +76,7 @@ private:
   bool processPendingPush();
   bool pollPeer(const PeerEntry& peer);
   bool pushToPeer(const PeerEntry& peer, const char* json);
-  bool parseAndApply(const char* json, ApplySource source);
+  bool parseJsonToSnapshot(const char* json, CueSnapshot& snap) const;
 #ifndef ARDUINO_ARCH_ESP32
   bool peerMatchesFilter(MDNSResponder::MDNSServiceInfo& serviceInfo);
 #endif

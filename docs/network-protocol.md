@@ -135,7 +135,7 @@ if is_newer(response.seq2, my.seq2):
     apply cue2 = response.cue2, seq2 = response.seq2
 ```
 
-Both paths call the same `parseAndApply()` logic in firmware.
+Both paths call the same `applyIncomingState()` logic in firmware.
 
 ---
 
@@ -199,6 +199,32 @@ browser = ServiceBrowser(zeroconf, "_cuelight._tcp.local.", Listener())
 input("Press Enter to exit...\n")
 zeroconf.close()
 ```
+
+---
+
+## LoRa transport (Heltec V3)
+
+Heltec boards with **Enable LoRa** on `/setup` send the same snapshot as `/api/cues` in an 18-byte broadcast packet. There is no mDNS or HTTP on the air.
+
+```
+offset  size  field
+0       1     magic (0xC1)
+1       1     version (1)
+2–3     2     system_id (little-endian)
+4–5     2     cue_group (little-endian)
+6       1     cue1
+7       1     cue2
+8–11    4     seq1 (little-endian)
+12–15   4     seq2 (little-endian)
+16–17   2     CRC-16/CCITT of bytes 0–15
+```
+
+Receivers apply the packet with the same sequence rules as HTTP. A board that is on WiFi **and** LoRa relays:
+
+- WiFi apply (newer seq) → LoRa TX (no HTTP re-push)
+- LoRa apply (newer seq) → HTTP POST to known peers (no LoRa re-TX)
+
+RF: 915.0 MHz + channel × 0.2 MHz, SF7, BW 125 kHz, CR 4/5, sync word `0xC1`, 14 dBm. Beacon every ~5 s with MAC jitter so late joiners catch up.
 
 ---
 

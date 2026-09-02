@@ -1,6 +1,7 @@
 #include "PeerSync.h"
 
 #include "CueIO.h"
+#include "CueLora.h"
 
 PeerSync peerSync;
 
@@ -182,17 +183,31 @@ bool PeerSync::begin() {
   return true;
 }
 
+void PeerSync::fillSnapshot(CueSnapshot& snap) const {
+  snap.systemId = _systemId;
+  snap.cueGroup = _cueGroup;
+  snap.cue1 = cueIO.getCueState(CUE_NUMBER_1);
+  snap.cue2 = cueIO.getCueState(CUE_NUMBER_2);
+  snap.seq1 = cueIO.getCueSeq(CUE_NUMBER_1);
+  snap.seq2 = cueIO.getCueSeq(CUE_NUMBER_2);
+}
+
 void PeerSync::buildStateJson(char* buffer, size_t size) const {
+  CueSnapshot snap;
+  fillSnapshot(snap);
   snprintf(buffer, size,
            "{\"system_id\":%u,\"cue_group\":%u,\"cue1\":%u,\"cue2\":%u,"
            "\"seq1\":%u,\"seq2\":%u}",
-           _systemId, _cueGroup, cueIO.getCueState(CUE_NUMBER_1),
-           cueIO.getCueState(CUE_NUMBER_2), cueIO.getCueSeq(CUE_NUMBER_1),
-           cueIO.getCueSeq(CUE_NUMBER_2));
+           snap.systemId, snap.cueGroup, snap.cue1, snap.cue2, snap.seq1,
+           snap.seq2);
 }
 
 bool PeerSync::applyIncomingJson(const char* json) {
-  return parseAndApply(json, ApplySource::Push);
+  CueSnapshot snap;
+  if (!parseJsonToSnapshot(json, snap)) {
+    return false;
+  }
+  return applyIncomingState(snap, CueTransport::Wifi);
 }
 
 void PeerSync::markLocalChange() {
@@ -204,11 +219,13 @@ void PeerSync::markInboundApply() {
 }
 
 void PeerSync::notifyLocalChange() {
+  markLocalChange();
+  cueLora.sendState();
+
   if (!_ready) {
     return;
   }
 
-  markLocalChange();
   buildStateJson(_pushJson, sizeof(_pushJson));
 
   const uint8_t peers = countPeers();
@@ -508,9 +525,7 @@ void PeerSync::expireStalePeers() {
   }
 }
 
-bool PeerSync::parseAndApply(const char* json, ApplySource source) {
-  (void)source;
-
+bool PeerSync::parseJsonToSnapshot(const char* json, CueSnapshot& snap) const {
   uint32_t systemId = 0;
   uint32_t cueGroup = 0;
   uint32_t cue1 = 0;
@@ -527,7 +542,17 @@ bool PeerSync::parseAndApply(const char* json, ApplySource source) {
     return false;
   }
 
-  if (systemId != _systemId || cueGroup != _cueGroup) {
+  snap.systemId = (uint16_t)systemId;
+  snap.cueGroup = (uint16_t)cueGroup;
+  snap.cue1 = (uint8_t)cue1;
+  snap.cue2 = (uint8_t)cue2;
+  snap.seq1 = seq1;
+  snap.seq2 = seq2;
+  return true;
+}
+
+bool PeerSync::applyIncomingState(const CueSnapshot& snap, CueTransport source) {
+  if (snap.systemId != _systemId || snap.cueGroup != _cueGroup) {
     return false;
   }
 
@@ -535,21 +560,34 @@ bool PeerSync::parseAndApply(const char* json, ApplySource source) {
   const uint32_t localSeq2 = cueIO.getCueSeq(CUE_NUMBER_2);
   bool applied = false;
 
-  if (isSeqNewer(seq1, localSeq1)) {
-    cueIO.applyRemoteCueState(CUE_NUMBER_1, (uint8_t)cue1, seq1);
+  if (isSeqNewer(snap.seq1, localSeq1)) {
+    cueIO.applyRemoteCueState(CUE_NUMBER_1, snap.cue1, snap.seq1);
     applied = true;
   }
 
-  if (isSeqNewer(seq2, localSeq2)) {
-    cueIO.applyRemoteCueState(CUE_NUMBER_2, (uint8_t)cue2, seq2);
+  if (isSeqNewer(snap.seq2, localSeq2)) {
+    cueIO.applyRemoteCueState(CUE_NUMBER_2, snap.cue2, snap.seq2);
     applied = true;
   }
 
-  if (applied) {
-    markInboundApply();
+  if (!applied) {
+    return false;
   }
 
-  return applied;
+  markInboundApply();
+
+  if (source == CueTransport::Wifi) {
+    _loraForwardPending = true;
+  } else if (source == CueTransport::Lora) {
+    buildStateJson(_pushJson, sizeof(_pushJson));
+    if (_ready) {
+      schedulePush();
+    } else {
+      _pushDeferred = true;
+    }
+  }
+
+  return true;
 }
 
 bool PeerSync::pollPeer(const PeerEntry& peer) {
@@ -595,7 +633,9 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
     Serial.printf_P(PSTR("Peer sync: empty/oversized response from %s\r\n"), ipStr);
     return false;
   }
-  const bool applied = parseAndApply(json, ApplySource::Poll);
+  CueSnapshot snap;
+  const bool applied = parseJsonToSnapshot(json, snap) &&
+                       applyIncomingState(snap, CueTransport::Wifi);
 
   char ipStr[16];
   formatIp(ipStr, sizeof(ipStr), peer.ip);
@@ -608,6 +648,18 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
 }
 
 void PeerSync::loop() {
+  cueLora.loop();
+
+  CueSnapshot loraSnap;
+  if (cueLora.takeReceived(loraSnap)) {
+    applyIncomingState(loraSnap, CueTransport::Lora);
+  }
+
+  if (_loraForwardPending) {
+    _loraForwardPending = false;
+    cueLora.sendState();
+  }
+
   if (!_ready) {
     return;
   }

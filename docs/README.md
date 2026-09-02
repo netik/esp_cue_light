@@ -1,6 +1,6 @@
 # Cue Light — documentation
 
-Technical documentation for the cue-light firmware (**v1.2.0**). NodeMCU (ESP8266) and Heltec WiFi LoRa 32 V3 (ESP32-S3) share this tree; the Heltec variant is selected by FQBN.
+Technical documentation for the cue-light firmware (**v1.3.0**). NodeMCU (ESP8266) and Heltec WiFi LoRa 32 V3 (ESP32-S3) share this tree; the Heltec variant is selected by FQBN.
 
 For building, flashing, hardware pins, and WiFi setup, start with the **[main README](../README.md)**.
 
@@ -29,8 +29,8 @@ For building, flashing, hardware pins, and WiFi setup, start with the **[main RE
 
 | Document | Contents |
 |----------|----------|
-| [Peer sync architecture](./peer-sync-architecture.md) | Problem statement, peer-equality model, push + poll sync, sequence numbers, timing, failure modes |
-| [Network protocol](./network-protocol.md) | mDNS service record, `GET`/`POST /api/cues`, sync algorithm, Python examples |
+| [Peer sync architecture](./peer-sync-architecture.md) | Problem statement, peer-equality model, push + poll sync, LoRa relay, sequence numbers, timing, failure modes |
+| [Network protocol](./network-protocol.md) | mDNS service record, `GET`/`POST /api/cues`, LoRa packet, sync algorithm, Python examples |
 | [Operations guide](./operations-guide.md) | Deployment checklist, serial monitor output, tuning, troubleshooting |
 
 ---
@@ -43,10 +43,11 @@ Boards are **peers**. There is no leader and no MQTT broker.
 |------|-----------|
 | Announce | Each board registers `_cuelight._tcp` via LEAmDNS on port 80 |
 | Discover | `MDNS.installServiceQuery()` + `MDNS.update()` in loop; peer table refreshed every 15 s |
-| Fast sync | `POST /api/cues` to all known peers immediately on local button press |
-| Fallback sync | `GET /api/cues` on one peer every 500 ms (round-robin) |
+| Fast sync | `POST /api/cues` to all known peers immediately on local button press; Heltec LoRa TX if enabled |
+| Fallback sync | `GET /api/cues` on one peer every 500 ms (round-robin); LoRa beacon ~5 s |
 | Conflict resolution | Per-cue sequence numbers — highest seq wins |
-| Late join | New board discovers peers via mDNS, polls, and adopts current state |
+| Late join | New board discovers peers via mDNS, polls, and adopts current state; LoRa beacons fill radio-only Heltecs |
+| Relay | Heltec with Enable LoRa + STA WiFi forwards applied state to the other transport |
 
 Boards sync only when **System ID** and **Cue Group** match (configured at `/setup`).
 
@@ -56,12 +57,13 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 
 | File | Role |
 |------|------|
-| `PeerSync.cpp` / `PeerSync.h` | mDNS discovery (LEAmDNS on ESP8266, ESPmDNS on ESP32), HTTP POST push, background GET polling |
+| `PeerSync.cpp` / `PeerSync.h` | mDNS discovery, HTTP POST push, background GET polling, CueSnapshot apply, LoRa/WiFi relay |
+| `CueLora.cpp` / `CueLora.h` | Heltec SX1262 RadioLib transport (915 MHz); stubs on NodeMCU |
 | `CueIO.cpp` / `CueIO.h` | Buttons, lamp outputs, sequence numbers; triggers push on local change |
 | `CueDisplay.cpp` / `CueDisplay.h` | Heltec OLED status; no-op on NodeMCU |
 | `PlatformCompat.h` | ESP8266 / ESP32 WiFi, mDNS, HTTP includes |
-| `config.h` | Pins (board-selected), defaults, `PEER_SYNC_*` timing constants |
-| `cue_light_webserver.ino` | WiFi, web server, `GET`/`POST /api/cues` handlers |
+| `config.h` | Pins (board-selected), defaults, `PEER_SYNC_*` and `LORA_*` constants |
+| `cue_light_webserver.ino` | WiFi, web server, `GET`/`POST /api/cues` handlers, Enable LoRa option |
 
 ---
 
@@ -82,6 +84,7 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 
 | Version | Sync transport |
 |---------|----------------|
+| **1.3.0** | Heltec LoRa (SX1262) additive transport + WiFi relay; same CueSnapshot as HTTP |
 | **1.1.2** | HTTP POST push on local change; 500 ms fallback poll; 15 s mDNS refresh |
 | **1.1.1** | LEAmDNS fix: `installServiceQuery`, `MDNS.update()` in loop, init after web server |
 | **1.1.0** | mDNS + HTTP GET polling only (initial peer sync) |

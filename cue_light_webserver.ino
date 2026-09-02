@@ -5,6 +5,7 @@
 
 #include "CueDisplay.h"
 #include "CueIO.h"
+#include "CueLora.h"
 #include "DashboardHtml.h"
 #include "PeerSync.h"
 #include "PlatformCompat.h"
@@ -19,6 +20,10 @@ AsyncFsWebServer server(FILESYSTEM, 80);
 
 uint16_t systemId = DEFAULT_SYSTEM_ID;
 uint16_t cueGroup = DEFAULT_CUE_GROUP;
+#if CUE_HAS_LORA
+bool enableLora = false;
+uint8_t loraChannel = 0;
+#endif
 
 bool wipeButtonPressed() {
   return digitalRead(PIN_BTN_PRIMARY) == LOW;
@@ -29,8 +34,9 @@ bool waitForWifiWipeHold() {
   pinMode(PIN_STATUS_LED, OUTPUT);
   digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
 
-  Serial.printf_P(PSTR("Boot DFM: cue lamps blink red/green for %u seconds. Hold primary button to wipe WiFi.\r\n"),
-                  (unsigned)(WIFI_WIPE_HOLD_MS / 1000));
+  Serial.printf_P(PSTR("Boot DFM: hold primary button %u seconds within %u seconds to wipe WiFi.\r\n"),
+                  (unsigned)(WIFI_WIPE_HOLD_MS / 1000),
+                  (unsigned)(WIFI_WIPE_WINDOW_MS / 1000));
 
   const unsigned long windowStart = millis();
   unsigned long holdStart = 0;
@@ -66,7 +72,7 @@ bool waitForWifiWipeHold() {
       }
       holdStart = 0;
       digitalWrite(PIN_STATUS_LED, STATUS_LED_OFF);
-      if ((now - windowStart) >= WIFI_WIPE_HOLD_MS) {
+      if ((now - windowStart) >= WIFI_WIPE_WINDOW_MS) {
         cueIO.setDfmLamps(CUE_STATE_RED);
         return false;
       }
@@ -81,16 +87,28 @@ void wipeWifiConfig() {
     FILESYSTEM.remove(WIFI_CREDENTIALS_FILE);
   }
 
-  WiFi.persistent(false);
-  WiFi.disconnect(true);
-  WiFi.persistent(true);
+  if (CredentialManager* creds = server.getCredentialManager()) {
+    creds->clearAll();
+  }
 
-  Serial.print(F("WiFi credentials wiped. Device will start AP /setup on next boot."));
+  WiFi.persistent(true);
+#ifdef ARDUINO_ARCH_ESP32
+  WiFi.disconnect(true, true);
+#else
+  WiFi.disconnect(true);
+#endif
+
+  Serial.print(F("WiFi credentials wiped. Starting AP /setup."));
   Serial.print(LINE_END);
+
+  cueDisplayShowWifiWiped();
+  digitalWrite(PIN_STATUS_LED, STATUS_LED_ON);
+  cueIO.setDfmLamps(CUE_STATE_GREEN);
 
   while (wipeButtonPressed()) {
     delay(10);
   }
+  delay(2000);
 }
 
 void buildApSsid(char* ssid, size_t size) {
@@ -103,10 +121,28 @@ void loadNetworkConfig() {
   if (FILESYSTEM.exists(server.getConfiFileName())) {
     server.getOptionValue("System ID", systemId);
     server.getOptionValue("Cue Group", cueGroup);
+#if CUE_HAS_LORA
+    server.getOptionValue("Enable LoRa", enableLora);
+    uint16_t channel = loraChannel;
+    if (server.getOptionValue("LoRa Channel", channel)) {
+      loraChannel = (uint8_t)((channel > LORA_CHANNEL_MAX) ? LORA_CHANNEL_MAX
+                                                          : channel);
+    }
+#endif
   }
   peerSync.setNetworkFilter(systemId, cueGroup);
   Serial.printf_P(PSTR("\r\n\r\nPeer sync filter: system_id=%u cue_group=%u\r\n"),
                   systemId, cueGroup);
+#if CUE_HAS_LORA
+  Serial.printf_P(PSTR("LoRa config: enable=%u channel=%u\r\n"),
+                  enableLora ? 1 : 0, loraChannel);
+#endif
+}
+
+void applyLoraConfig() {
+#if CUE_HAS_LORA
+  cueLora.configure(enableLora, loraChannel, systemId, cueGroup);
+#endif
 }
 
 void ensureDashboardOnFs() {
@@ -131,6 +167,7 @@ void onConfigSaved(const char* filename) {
   Serial.printf_P(PSTR("Config saved: %s\r\n"), filename);
   loadNetworkConfig();
   ensureDashboardOnFs();
+  applyLoraConfig();
 }
 
 void handleCueStatus(AsyncWebServerRequest* request) {
@@ -229,13 +266,6 @@ void setup() {
 #endif
 
   cueDisplayBegin();
-#ifdef CUE_BOARD_HELTEC_V3
-  // GPIO 0 held at reset enters download mode. After OLED comes up, hold PRG
-  // to wipe WiFi without hitting the bootloader.
-  if (!wokeFromSleep) {
-    delay(500);
-  }
-#endif
 
   const bool wipeWifi = wokeFromSleep ? false : waitForWifiWipeHold();
 
@@ -258,11 +288,19 @@ void setup() {
   server.addOptionBox("Cue Network");
   server.addOption("System ID", systemId);
   server.addOption("Cue Group", cueGroup);
+#if CUE_HAS_LORA
+  server.addOptionBox("LoRa");
+  server.addOption("Enable LoRa", enableLora);
+  server.addComment("Enable LoRa",
+                    "915 MHz SX1262. Relays cue state to WiFi peers when on the LAN.");
+  server.addOption("LoRa Channel", loraChannel, 0.0, 7.0, 1.0);
+  server.addComment("LoRa Channel", "0-7 sub-band. Match this on every Heltec.");
+#endif
   server.setSetupPageTitle("Cue Light Setup");
 
   loadNetworkConfig();
 
-  if (!server.startWiFi(10000)) {
+  if (wipeWifi || !server.startWiFi(10000)) {
     char apSsid[20];
     buildApSsid(apSsid, sizeof(apSsid));
     Serial.printf_P(PSTR("\r\nWiFi not connected! Starting AP mode. SSID: %s / Password: %s\r\n"),
@@ -286,6 +324,8 @@ void setup() {
     Serial.print(F("Warning: Peer sync unavailable."));
     Serial.print(LINE_END);
   }
+
+  applyLoraConfig();
 
   Serial.printf_P(PSTR("Cue Light Webserver %s at "), FIRMWARE_VERSION);
   Serial.print(server.getServerIP());

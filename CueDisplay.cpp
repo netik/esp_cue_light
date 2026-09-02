@@ -1,6 +1,7 @@
 #include "CueDisplay.h"
 
 #include "CueIO.h"
+#include "CueLora.h"
 #include "PeerSync.h"
 #include "config.h"
 
@@ -10,6 +11,7 @@ void cueDisplayBegin() {}
 void cueDisplayRefresh() {}
 void cueDisplaySplash() {}
 void cueDisplayShowOff() {}
+void cueDisplayShowWifiWiped() {}
 void cueDisplayPowerDown() {}
 
 #else
@@ -418,7 +420,7 @@ void cueDisplaySplash() {
   drawText(0, 12, FIRMWARE_VERSION, true);
   drawPeerCount(0);
   drawText(0, 28, "HOLD PRG 3S", true);
-  drawText(0, 40, "TO WIPE WIFI", true);
+  drawText(0, 40, "WHILE BLINKING", true);
   flush();
 }
 
@@ -431,6 +433,17 @@ void cueDisplayShowOff() {
   const char* msg = "-OFF-";
   const int textW = 5 * 6;
   drawText((kWidth - textW) / 2, 32, msg, false);
+  flush();
+}
+
+void cueDisplayShowWifiWiped() {
+  if (!g_ready) {
+    return;
+  }
+  clear();
+  fillRect(0, 10, kWidth, 44, true);
+  drawText((kWidth - 10 * 6) / 2, 20, "WIFI WIPED", false);
+  drawText((kWidth - 8 * 6) / 2, 36, "AP SETUP", false);
   flush();
 }
 
@@ -450,6 +463,9 @@ void cueDisplayRefresh() {
 
   clear();
   drawText(0, 0, "CUE LIGHT", true);
+  if (cueLora.isReady()) {
+    drawText(58, 0, "LORA", true);
+  }
   drawBattery(readBatteryPercent());
 
   char ipLine[22];
