@@ -360,16 +360,20 @@ void drawNodeIcon(int x, int y) {
   fillRect(x + 6, y + 4, 3, 3, true);
 }
 
-void drawPeerCount(uint8_t peers) {
+void drawPeerCount(uint8_t peers, bool lora) {
   char text[4];
   snprintf(text, sizeof(text), "%u", peers);
   const int textW = (int)strlen(text) * 6;
   const int iconW = 9;
   const int gap = 2;
+  const int loraW = lora ? 4 * 6 : 0;
   const int iconX = kWidth - iconW;
   const int textX = iconX - gap - textW;
   const int y = 10;
 
+  if (lora) {
+    drawText(textX - gap - loraW, y, "LORA", true);
+  }
   drawText(textX, y, text, true);
   drawNodeIcon(iconX, y);
 }
@@ -418,9 +422,9 @@ void cueDisplaySplash() {
   drawText(0, 0, "CUE LIGHT", true);
   drawBattery(readBatteryPercent());
   drawText(0, 12, FIRMWARE_VERSION, true);
-  drawPeerCount(0);
-  drawText(0, 28, "HOLD PRG 3S", true);
-  drawText(0, 40, "WHILE BLINKING", true);
+  drawPeerCount(0, false);
+  drawText(0, 28, "HOLD PRG FOR 3S", true);
+  drawText(0, 40, "TO WIPE CONFIG", true);
   flush();
 }
 
@@ -463,9 +467,6 @@ void cueDisplayRefresh() {
 
   clear();
   drawText(0, 0, "CUE LIGHT", true);
-  if (cueLora.isReady()) {
-    drawText(58, 0, "LORA", true);
-  }
   drawBattery(readBatteryPercent());
 
   char ipLine[22];
@@ -481,7 +482,7 @@ void cueDisplayRefresh() {
     snprintf(ipLine, sizeof(ipLine), "NO WIFI");
   }
   drawText(0, 10, ipLine, true);
-  drawPeerCount(peerSync.countPeers());
+  drawPeerCount(peerSync.countPeers(), cueLora.isReady());
 
 #if CUE_LOCAL == CUE_LOCAL_ALL
   drawCueBox(0, 62, CUE_NUMBER_1, cueIO.getCueState(CUE_NUMBER_1));
