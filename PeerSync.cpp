@@ -38,9 +38,7 @@ bool isSeqNewer(uint32_t incoming, uint32_t current) {
 }
 
 void buildHostname(char* hostname, size_t size) {
-  uint8_t mac[6] = {0};
-  cueWifiMacAddress(mac);
-  snprintf(hostname, size, "CueLight-%02X%02X", mac[4], mac[5]);
+  cueDefaultSsid(hostname, size);
 }
 
 #ifndef ARDUINO_ARCH_ESP32

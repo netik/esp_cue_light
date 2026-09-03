@@ -3,6 +3,7 @@
 #include "CueIO.h"
 #include "CueLora.h"
 #include "PeerSync.h"
+#include "PlatformCompat.h"
 #include "config.h"
 
 #if !CUE_HAS_OLED
@@ -345,6 +346,12 @@ int readBatteryPercent() {
   return voltageToPercent(filtered);
 }
 
+void drawDeviceTitle() {
+  char ssid[20];
+  cueDefaultSsid(ssid, sizeof(ssid));
+  drawText(0, 0, ssid, true);
+}
+
 void drawBattery(int percent) {
   const bool known = percent >= 0;
   if (percent < 0) {
@@ -464,7 +471,7 @@ void cueDisplaySplash() {
     return;
   }
   clear();
-  drawText(0, 0, "CUE LIGHT", true);
+  drawDeviceTitle();
   drawBattery(readBatteryPercent());
   drawText(0, 12, FIRMWARE_VERSION, true);
   drawPeerCount(0, false);
@@ -522,7 +529,7 @@ void cueDisplayRefresh() {
   }
 
   clear();
-  drawText(0, 0, "CUE LIGHT", true);
+  drawDeviceTitle();
   drawBattery(readBatteryPercent());
 
   char ipLine[22];

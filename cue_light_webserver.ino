@@ -111,11 +111,7 @@ void wipeWifiConfig() {
   delay(2000);
 }
 
-void buildApSsid(char* ssid, size_t size) {
-  uint8_t mac[6] = {0};
-  cueWifiMacAddress(mac);
-  snprintf(ssid, size, "CueLight-%02X%02X", mac[4], mac[5]);
-}
+void buildApSsid(char* ssid, size_t size) { cueDefaultSsid(ssid, size); }
 
 void loadNetworkConfig() {
   if (FILESYSTEM.exists(server.getConfiFileName())) {

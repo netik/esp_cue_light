@@ -27,6 +27,13 @@ inline void cueWifiMacAddress(uint8_t mac[6]) {
 #endif
 }
 
+// AP SSID, mDNS hostname, and OLED title: CueLight-XXXX (last two MAC bytes).
+inline void cueDefaultSsid(char* ssid, size_t size) {
+  uint8_t mac[6] = {0};
+  cueWifiMacAddress(mac);
+  snprintf(ssid, size, "CueLight-%02X%02X", mac[4], mac[5]);
+}
+
 inline void cueWifiSetHostname(const char* hostname) {
 #ifdef ARDUINO_ARCH_ESP32
   WiFi.setHostname(hostname);
