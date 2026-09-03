@@ -1,6 +1,6 @@
 # Pinout
 
-Firmware pin map as of **v1.3.0**. Source of truth: `config.h`.
+Firmware pin map as of **v1.4.0**. Source of truth: `config.h`.
 
 Cue lamps are **common-anode RGB**. GPIO **LOW** turns a color on (current sink). Buttons are **active LOW** (to GND) with internal pull-up.
 

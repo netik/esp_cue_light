@@ -1,6 +1,6 @@
 # Cue Light — documentation
 
-Technical documentation for the cue-light firmware (**v1.3.0**). NodeMCU (ESP8266) and Heltec WiFi LoRa 32 V3 (ESP32-S3) share this tree; the Heltec variant is selected by FQBN.
+Technical documentation for the cue-light firmware (**v1.4.0**). NodeMCU (ESP8266) and Heltec WiFi LoRa 32 V3 (ESP32-S3) share this tree; the Heltec variant is selected by FQBN.
 
 For building, flashing, hardware pins, and WiFi setup, start with the **[main README](../README.md)**.
 
@@ -84,6 +84,7 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 
 | Version | Sync transport |
 |---------|----------------|
+| **1.4.0** | OLED title is `CueLight-XXXX`; LoRa heard-peer count on the node icon |
 | **1.3.0** | Heltec LoRa (SX1262) additive transport + WiFi relay; same CueSnapshot as HTTP |
 | **1.1.2** | HTTP POST push on local change; 500 ms fallback poll; 15 s mDNS refresh |
 | **1.1.1** | LEAmDNS fix: `installServiceQuery`, `MDNS.update()` in loop, init after web server |

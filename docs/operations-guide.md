@@ -2,7 +2,7 @@
 
 Practical steps for deploying, configuring, and troubleshooting cue-light boards on a show network.
 
-**Firmware:** v1.3.0
+**Firmware:** v1.4.0
 
 ---
 
@@ -54,7 +54,7 @@ On boot with WiFi connected:
 ```
 Peer sync filter: system_id=1 cue_group=1
 Peer sync ready: hostname=CueLight-8D22.local ip=192.168.1.42 system_id=1 cue_group=1
-Cue Light Webserver 1.3.0 at 192.168.1.42
+Cue Light Webserver 1.4.0 at 192.168.1.42
 ```
 
 After mDNS discovers a peer:

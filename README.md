@@ -9,7 +9,7 @@ Supported boards:
 
 Press a button on any board to toggle a cue red/green locally. That change **POSTs immediately** to every other board in the same **System ID** and **Cue Group** (~100–300 ms). Background polling catches anything missed. NodeMCU and Heltec boards can mix in the same group. A Heltec with **Enable LoRa** on also broadcasts the same snapshot over SX1262; if that board is on WiFi, it relays LoRa state to HTTP peers and WiFi state to LoRa.
 
-**Firmware version:** 1.3.0
+**Firmware version:** 1.4.0
 
 ## How sync works
 
