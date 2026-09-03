@@ -22,6 +22,7 @@ uint16_t systemId = DEFAULT_SYSTEM_ID;
 uint16_t cueGroup = DEFAULT_CUE_GROUP;
 #if CUE_HAS_LORA
 bool enableLora = false;
+bool enableWifi = true;
 uint8_t loraChannel = 0;
 #endif
 
@@ -82,7 +83,18 @@ bool waitForWifiWipeHold() {
   }
 }
 
+// Clears saved STA credentials and starts AP. Heltec: also writes Enable
+// WiFi back on so a LoRa-only board can reach /setup. Call after addOption.
 void wipeWifiConfig() {
+#if CUE_HAS_LORA
+  // Options must already be registered so this can persist Enable WiFi.
+  enableWifi = true;
+  if (!server.saveOptionValue("Enable WiFi", true)) {
+    Serial.print(F("Warning: could not write Enable WiFi on wipe."));
+    Serial.print(LINE_END);
+  }
+#endif
+
   if (FILESYSTEM.exists(WIFI_CREDENTIALS_FILE)) {
     FILESYSTEM.remove(WIFI_CREDENTIALS_FILE);
   }
@@ -119,10 +131,14 @@ void loadNetworkConfig() {
     server.getOptionValue("Cue Group", cueGroup);
 #if CUE_HAS_LORA
     server.getOptionValue("Enable LoRa", enableLora);
+    server.getOptionValue("Enable WiFi", enableWifi);
     uint16_t channel = loraChannel;
     if (server.getOptionValue("LoRa Channel", channel)) {
       loraChannel = (uint8_t)((channel > LORA_CHANNEL_MAX) ? LORA_CHANNEL_MAX
                                                           : channel);
+    }
+    if (!enableWifi) {
+      enableLora = true;
     }
 #endif
   }
@@ -130,8 +146,8 @@ void loadNetworkConfig() {
   Serial.printf_P(PSTR("\r\n\r\nPeer sync filter: system_id=%u cue_group=%u\r\n"),
                   systemId, cueGroup);
 #if CUE_HAS_LORA
-  Serial.printf_P(PSTR("LoRa config: enable=%u channel=%u\r\n"),
-                  enableLora ? 1 : 0, loraChannel);
+  Serial.printf_P(PSTR("LoRa config: enable=%u channel=%u wifi=%u\r\n"),
+                  enableLora ? 1 : 0, loraChannel, enableWifi ? 1 : 0);
 #endif
 }
 
@@ -164,6 +180,17 @@ void onConfigSaved(const char* filename) {
   loadNetworkConfig();
   ensureDashboardOnFs();
   applyLoraConfig();
+#if CUE_HAS_LORA
+  if (!enableWifi) {
+    enableLora = true;
+    server.saveOptionValue("Enable LoRa", true);
+    server.closeSetupConfiguration();
+    Serial.print(F("Enable WiFi off: reboot to LoRa-only."));
+    Serial.print(LINE_END);
+    delay(250);
+    ESP.restart();
+  }
+#endif
 }
 
 void handleCueStatus(AsyncWebServerRequest* request) {
@@ -277,10 +304,6 @@ void setup() {
     ESP.restart();
   }
 
-  if (wipeWifi) {
-    wipeWifiConfig();
-  }
-
   ensureDashboardOnFs();
 
   server.addOptionBox("Cue Network");
@@ -291,6 +314,9 @@ void setup() {
   server.addOption("Enable LoRa", enableLora);
   server.addComment("Enable LoRa",
                     "915 MHz SX1262. Relays cue state to WiFi peers when on the LAN.");
+  server.addOption("Enable WiFi", enableWifi);
+  server.addComment("Enable WiFi",
+                    "Uncheck for LoRa only. Boot wipe turns WiFi back on.");
   server.addOption("LoRa Channel", loraChannel, 0.0, 7.0, 1.0);
   server.addComment("LoRa Channel", "0-7 sub-band. Match this on every Heltec.");
 #endif
@@ -298,38 +324,64 @@ void setup() {
 
   loadNetworkConfig();
 
-  if (wipeWifi || !server.startWiFi(10000)) {
-    char apSsid[20];
-    buildApSsid(apSsid, sizeof(apSsid));
-    Serial.printf_P(PSTR("\r\nWiFi not connected! Starting AP mode. SSID: %s / Password: %s\r\n"),
-                    apSsid, AP_PASSWORD);
-    server.startCaptivePortal(apSsid, AP_PASSWORD, "/setup");
+  if (wipeWifi) {
+    wipeWifiConfig();
   }
 
-  cueWifiDisableSleep();
+#if CUE_HAS_LORA
+  const bool loraOnly = !wipeWifi && !enableWifi;
+#else
+  const bool loraOnly = false;
+#endif
 
-  server.setConfigSavedCallback(onConfigSaved);
+#if CUE_HAS_LORA
+  if (loraOnly) {
+    enableLora = true;
+    server.saveOptionValue("Enable LoRa", true);
+    cueWifiRadioOff();
+    server.closeSetupConfiguration();
+  } else
+#endif
+  {
+    if (wipeWifi || !server.startWiFi(10000)) {
+      char apSsid[20];
+      buildApSsid(apSsid, sizeof(apSsid));
+      Serial.printf_P(
+          PSTR("\r\nWiFi not connected! Starting AP mode. SSID: %s / Password: %s\r\n"),
+          apSsid, AP_PASSWORD);
+      server.startCaptivePortal(apSsid, AP_PASSWORD, "/setup");
+    }
+    cueWifiDisableSleep();
+  }
 
   cueIO.begin();
 
-  server.on("/api/cues", HTTP_GET, handleCueStatus);
-  server.on("/api/cues", HTTP_POST, [](AsyncWebServerRequest* request) {},
-            NULL, handleCuePush);
+  if (!loraOnly) {
+    server.setConfigSavedCallback(onConfigSaved);
+    server.on("/api/cues", HTTP_GET, handleCueStatus);
+    server.on("/api/cues", HTTP_POST, [](AsyncWebServerRequest* request) {},
+              NULL, handleCuePush);
+    server.init();
 
-  server.init();
-
-  if (!peerSync.begin()) {
-    Serial.print(F("Warning: Peer sync unavailable."));
-    Serial.print(LINE_END);
+    if (!peerSync.begin()) {
+      Serial.print(F("Warning: Peer sync unavailable."));
+      Serial.print(LINE_END);
+    }
   }
 
   applyLoraConfig();
 
-  Serial.printf_P(PSTR("Cue Light Webserver %s at "), FIRMWARE_VERSION);
-  Serial.print(server.getServerIP());
-  Serial.print(LINE_END);
-  Serial.print(F("Dashboard at /. Configure network at /setup\r\nReady.\r\n"));
-  Serial.print(LINE_END);
+  if (loraOnly) {
+    Serial.printf_P(PSTR("Cue Light %s LoRa-only (WiFi off)\r\nReady.\r\n"),
+                    FIRMWARE_VERSION);
+    Serial.print(LINE_END);
+  } else {
+    Serial.printf_P(PSTR("Cue Light Webserver %s at "), FIRMWARE_VERSION);
+    Serial.print(server.getServerIP());
+    Serial.print(LINE_END);
+    Serial.print(F("Dashboard at /. Configure network at /setup\r\nReady.\r\n"));
+    Serial.print(LINE_END);
+  }
 }
 
 void loop() {

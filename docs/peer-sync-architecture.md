@@ -152,7 +152,7 @@ State JSON is built centrally by `PeerSync::buildStateJson()` and used by both t
 
 ## LoRa (Heltec V3)
 
-LoRa is **additive**. `/setup` has **Enable LoRa** (default off) and **LoRa Channel** 0–7. WiFi STA / AP boot is unchanged. NodeMCU has no radio.
+LoRa is **additive** unless **Enable WiFi** is unchecked. `/setup` has **Enable LoRa** (default off), **Enable WiFi** (default on), and **LoRa Channel** 0–7. NodeMCU has no radio.
 
 When Enable LoRa is on:
 
@@ -161,7 +161,9 @@ When Enable LoRa is on:
 - Incoming LoRa (newer seq) → apply, then HTTP POST to known peers (no LoRa re-TX)
 - Beacon every ~5 s so late joiners catch up
 
-One Heltec on show WiFi with Enable LoRa is enough to mix NodeMCU WiFi peers with radio-only Heltecs (still on the same System ID / Cue Group / LoRa channel). Exclusive WiFi-off LoRa-only is not a mode: AP/setup remains available.
+When **Enable WiFi** is off, the Heltec skips STA/AP, powers the WiFi radio down (`WIFI_OFF`), and does not start the HTTP server. LoRa is forced on. OLED IP line is **LORA ONLY**. Boot wipe writes Enable WiFi back on and starts the setup AP.
+
+One Heltec on show WiFi with Enable LoRa is enough to mix NodeMCU WiFi peers with LoRa-only Heltecs (same System ID / Cue Group / LoRa channel).
 
 RF is compile-time **915 MHz** in `config.h` (SF7, BW 125 kHz, 14 dBm). Channel 0 is 915.0 MHz; each step adds 0.2 MHz.
 
@@ -247,6 +249,7 @@ Use different System IDs to isolate unrelated shows on one VLAN. Use different C
 | All peers offline | Board operates standalone; re-syncs when peers return |
 | WiFi AP client isolation enabled | mDNS and HTTP between clients fails. **Disable client isolation** on the AP. |
 | Board in AP/captive-portal mode | HTTP peer sync disabled until station mode connects to LAN. LoRa still runs if Enable LoRa is on. |
+| Heltec Enable WiFi off | No HTTP; LoRa only. Boot wipe re-enables WiFi and starts AP. |
 | Heltec LoRa channel mismatch | Packets filtered at unpack; no apply. Match LoRa Channel on all radio boards. |
 | Duplicate hostname (rare) | mDNS uses MAC-derived names; collision unlikely |
 | More than 8 peers in one group | Only first 8 discovered IPs tracked; increase `PEER_SYNC_MAX_PEERS` if needed |
@@ -283,7 +286,6 @@ No TLS, no JSON library, no second TCP server. JSON is parsed with lightweight s
 - **MQTT broker** — if always-on show hardware is available; boards would become thin clients.
 - **Leader mode** — optional config for sites that want a single authoritative IP.
 - **WebSocket push** — real-time dashboard updates without polling (dashboard already polls every 1 s).
-- **Exclusive LoRa-only (WiFi off)** — Enable LoRa currently keeps WiFi STA/AP as today.
 
 ---
 

@@ -3,7 +3,8 @@
  * @brief Heltec 0.96" SSD1306 (128×64, I2C 0x3C) status UI; no-op on NodeMCU.
  *
  * Bit-banged from a 1024-byte page buffer. Title is @c CueLight-XXXX. Peer
- * count is WiFi mDNS peers plus LoRa heard radios.
+ * count is WiFi mDNS peers plus LoRa heard radios. IP line is STA address,
+ * AP address, LORA ONLY (WIFI_OFF), or NO WIFI.
  */
 
 #include "CueDisplay.h"
@@ -650,6 +651,8 @@ void cueDisplayRefresh() {
     const IPAddress ip = WiFi.softAPIP();
     snprintf(ipLine, sizeof(ipLine), "AP %u.%u.%u.%u", ip[0], ip[1], ip[2],
              ip[3]);
+  } else if (WiFi.getMode() == WIFI_OFF) {
+    snprintf(ipLine, sizeof(ipLine), "LORA ONLY");
   } else {
     snprintf(ipLine, sizeof(ipLine), "NO WIFI");
   }

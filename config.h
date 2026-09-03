@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#define FIRMWARE_VERSION "1.4.0"
+#define FIRMWARE_VERSION "1.5.0"
 
 // Heltec WiFi LoRa 32 V3 (ESP32-S3) is auto-selected when that FQBN/variant
 // is used. Override with -DBOARD_HELTEC_V3 for a generic ESP32-S3 FQBN.

@@ -7,6 +7,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <esp_mac.h>
+#include <esp_wifi.h>
 #include <mdns.h>
 #else
 #include <ESP8266HTTPClient.h>
@@ -47,6 +48,19 @@ inline void cueWifiDisableSleep() {
   WiFi.setSleep(false);
 #else
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
+#endif
+}
+
+// Full radio off for Heltec LoRa-only mode (and the same sequence CueIO uses
+// before deep sleep).
+inline void cueWifiRadioOff() {
+#ifdef ARDUINO_ARCH_ESP32
+  WiFi.disconnect(true, false);
+  WiFi.mode(WIFI_OFF);
+  esp_wifi_stop();
+#else
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
 #endif
 }
 

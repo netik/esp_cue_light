@@ -2,7 +2,7 @@
 
 Practical steps for deploying, configuring, and troubleshooting cue-light boards on a show network.
 
-**Firmware:** v1.4.0
+**Firmware:** v1.5.0
 
 ---
 
@@ -11,7 +11,7 @@ Practical steps for deploying, configuring, and troubleshooting cue-light boards
 1. **Flash firmware** — `make compile` then `make upload-board1` / `make upload-both` (upload does not rebuild). `make deploy-both` compiles once, then flashes firmware + LittleFS.
 2. **Join WiFi** — connect each board via captive portal at `/setup`.
 3. **Set System ID and Cue Group** — must match across all boards that should sync.
-4. **Heltec LoRa (optional)** — check **Enable LoRa** and match **LoRa Channel** on every radio Heltec. One Heltec on WiFi with LoRa on will relay to NodeMCU HTTP peers.
+4. **Heltec LoRa (optional)** — check **Enable LoRa** and match **LoRa Channel** on every radio Heltec. One Heltec on WiFi with LoRa on will relay to NodeMCU HTTP peers. Uncheck **Enable WiFi** only for Heltec-only radio groups (OLED **LORA ONLY**; boot wipe to get `/setup` back).
 5. **Verify mDNS** — from a laptop on the same LAN, browse `_cuelight._tcp`.
 6. **Verify sync** — press a button on board A; board B should follow within **~300 ms**.
 7. **Confirm AP settings** — client isolation must be **off**.
@@ -28,6 +28,7 @@ Open `http://<board-ip>/setup` (or `http://192.168.4.1/setup` in AP mode).
 | **System ID** | Isolates unrelated installations (default: 1) |
 | **Cue Group** | Sub-group within a system (default: 1) |
 | **Enable LoRa** | Heltec only. SX1262 at 915 MHz; default off |
+| **Enable WiFi** | Heltec only. Default on. Uncheck for LoRa only (WiFi radio off, no web server) |
 | **LoRa Channel** | Heltec only. Sub-band 0–7 (915.0 MHz + n × 0.2 MHz) |
 
 Settings persist in LittleFS at `/setup/config.json` and survive normal firmware updates. LittleFS uploads preserve `/setup/` automatically (see main README).
@@ -54,7 +55,7 @@ On boot with WiFi connected:
 ```
 Peer sync filter: system_id=1 cue_group=1
 Peer sync ready: hostname=CueLight-8D22.local ip=192.168.1.42 system_id=1 cue_group=1
-Cue Light Webserver 1.4.0 at 192.168.1.42
+Cue Light Webserver 1.5.0 at 192.168.1.42
 ```
 
 After mDNS discovers a peer:
@@ -123,6 +124,8 @@ Expected:
 |---------|--------------|-----|
 | Cues work locally but never sync | System ID or Cue Group mismatch | Match values in `/setup` on all boards |
 | Heltec LoRa not transmitting | Enable LoRa off | Check **Enable LoRa** on `/setup`; serial should show `LoRa ready` |
+| Heltec OLED shows `LORA ONLY` | Enable WiFi off | Intended. Boot wipe to turn WiFi back on and open `/setup` |
+| Cannot open `/setup` on a Heltec | LoRa-only (WiFi off) | Power-cycle, hold **PRG** 3 s while lamps blink |
 | Heltecs on LoRa don't sync | Channel mismatch | Match **LoRa Channel** (and System ID / Cue Group) |
 | NodeMCU follows Heltec LoRa slowly or never | No WiFi relay | Put at least one Heltec on the show LAN with Enable LoRa |
 | Cues work locally but never sync | WiFi client isolation | Disable isolation on the AP |

@@ -1,6 +1,6 @@
 # Cue Light — user manual
 
-Firmware **v1.4.0**. This is how to operate a cue-light board on a show: buttons, lamps, WiFi setup, the Heltec screen, and LoRa.
+Firmware **v1.5.0**. This is how to operate a cue-light board on a show: buttons, lamps, WiFi setup, the Heltec screen, and LoRa.
 
 Two hardware types share the same firmware:
 
@@ -51,7 +51,7 @@ Not used on stock Heltec firmware. Wire a momentary switch from GPIO 2 to GND on
 
 Top row: device name **`CueLight-XXXX`** (last two bytes of the WiFi MAC — same as the setup SSID) and battery percent.
 
-Second row: IP address, or `AP 192.168.4.1` in setup mode, or `NO WIFI`. On the right: a small radio icon if LoRa is on, then a number and a node icon. That number is other boards this unit currently sees (WiFi peers plus recently heard LoRa radios).
+Second row: IP address, or `AP 192.168.4.1` in setup mode, or `LORA ONLY` if WiFi is off, or `NO WIFI`. On the right: a small radio icon if LoRa is on, then a number and a node icon. That number is other boards this unit currently sees (WiFi peers plus recently heard LoRa radios).
 
 Below that: a large **CUE 1** box, filled when green, outline when red.
 
@@ -99,8 +99,8 @@ There is no power-off / sleep on NodeMCU. A long hold after boot does **not** sh
    - **Password:** `123456789`
 3. Join that network. Open the captive portal, or browse to `http://192.168.4.1/setup`.
 4. Pick the show WiFi. Set **System ID** and **Cue Group** (defaults: both `1`). Every board that should follow each other must use the **same** pair.
-5. Heltec only: optionally check **Enable LoRa** and set **LoRa Channel** `0`–`7`. Every radio Heltec in the group must use the same channel.
-6. Save. The board joins the LAN. Note the IP from the serial monitor (115200,N,8,1) or from the Heltec OLED.
+5. Heltec only: optionally check **Enable LoRa** and set **LoRa Channel** `0`–`7`. Every radio Heltec in the group must use the same channel. Uncheck **Enable WiFi** to run LoRa only (OLED shows **LORA ONLY**; no web dashboard until you wipe).
+6. Save. The board joins the LAN, or reboots into LoRa-only if you turned WiFi off. Note the IP from the serial monitor (115200,N,8,1) or from the Heltec OLED.
 
 Change WiFi or IDs later at `http://<board-ip>/setup`.
 
@@ -111,7 +111,7 @@ Use this when you need a new network or the board will not join.
 1. Power **on without** holding the primary button (especially on Heltec).
 2. Wait for the lamps to blink (Heltec: OLED splash is up).
 3. Hold the **primary** button for **3 seconds** (Heltec **PRG**, NodeMCU **D1**).
-4. Heltec shows **WIFI WIPED**. The setup AP starts immediately; it will not reconnect to the old network.
+4. Heltec shows **WIFI WIPED**. The setup AP starts immediately; it will not reconnect to the old network. Wipe also writes **Enable WiFi** back on, so a LoRa-only board can reach `/setup` again.
 
 ---
 
@@ -133,6 +133,7 @@ Enable it on `/setup`. It is off by default.
 - Same cue snapshot as WiFi (both Cue 1 and Cue 2, even if the OLED only shows one).
 - Channel `0` is 915.0 MHz; each step up is +0.2 MHz.
 - If LoRa is on **and** the board is on show WiFi, it **relays**: WiFi changes go out over LoRa, LoRa changes are POSTed to WiFi peers. That is how a NodeMCU on the LAN can follow a Heltec that is being used as a radio.
+- Uncheck **Enable WiFi** to run **LoRa only**: the WiFi radio is powered off, the web server is not started, and the OLED IP line shows **LORA ONLY**. LoRa is forced on. NodeMCUs will not hear these boards unless another Heltec stays on show WiFi as a relay. To get `/setup` back, power-cycle and wipe (hold **PRG** 3 s while the lamps blink); that turns Enable WiFi on and starts the setup AP.
 
 The OLED node count stays at **0** for LoRa until another Heltec on the same channel and IDs is heard (beacons every few seconds). WiFi peer count only goes up when mDNS finds other boards on the LAN.
 

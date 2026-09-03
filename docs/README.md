@@ -1,6 +1,6 @@
 # Cue Light — documentation
 
-Technical documentation for the cue-light firmware (**v1.4.0**). NodeMCU (ESP8266) and Heltec WiFi LoRa 32 V3 (ESP32-S3) share this tree; the Heltec variant is selected by FQBN.
+Technical documentation for the cue-light firmware (**v1.5.0**). NodeMCU (ESP8266) and Heltec WiFi LoRa 32 V3 (ESP32-S3) share this tree; the Heltec variant is selected by FQBN.
 
 For building, flashing, hardware pins, and WiFi setup, start with the **[main README](../README.md)**.
 
@@ -58,6 +58,7 @@ Boards are **peers**. There is no leader and no MQTT broker.
 | Conflict resolution | Per-cue sequence numbers — highest seq wins |
 | Late join | New board discovers peers via mDNS, polls, and adopts current state; LoRa beacons fill radio-only Heltecs |
 | Relay | Heltec with Enable LoRa + STA WiFi forwards applied state to the other transport |
+| LoRa only | Heltec **Enable WiFi** off: no STA/AP, no HTTP; SX1262 only. Boot wipe turns WiFi back on |
 
 Boards sync only when **System ID** and **Cue Group** match (configured at `/setup`).
 
@@ -73,7 +74,7 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 | `CueDisplay.cpp` / `CueDisplay.h` | Heltec OLED status; no-op on NodeMCU |
 | `PlatformCompat.h` | ESP8266 / ESP32 WiFi, mDNS, HTTP includes |
 | `config.h` | Pins (board-selected), defaults, `PEER_SYNC_*` and `LORA_*` constants |
-| `cue_light_webserver.ino` | WiFi, web server, `GET`/`POST /api/cues` handlers, Enable LoRa option |
+| `cue_light_webserver.ino` | WiFi, web server, `GET`/`POST /api/cues` handlers, Enable LoRa / Enable WiFi options |
 
 ---
 
@@ -94,6 +95,7 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 
 | Version | Sync transport |
 |---------|----------------|
+| **1.5.0** | Heltec **Enable WiFi** option: LoRa-only (WIFI_OFF); boot wipe turns WiFi back on |
 | **1.4.0** | OLED title is `CueLight-XXXX`; LoRa heard-peer count on the node icon |
 | **1.3.0** | Heltec LoRa (SX1262) additive transport + WiFi relay; same CueSnapshot as HTTP |
 | **1.1.2** | HTTP POST push on local change; 500 ms fallback poll; 15 s mDNS refresh |
