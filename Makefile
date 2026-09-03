@@ -38,10 +38,21 @@ CLI_FLAGS   := --config-file $(CLI_CONFIG)
 
 BUILD_NODEMCU := $(ROOT)build/nodemcu
 BUILD_HELTEC  := $(ROOT)build/heltec
+NODEMCU_BIN   := $(BUILD_NODEMCU)/cue_light_webserver.ino.bin
+HELTEC_BIN    := $(BUILD_HELTEC)/cue_light_webserver.ino.bin
 
 SCRIPTS     := $(ROOT)scripts
 UPLOAD_FS   := $(SCRIPTS)/upload-littlefs.sh
 SETUP_LIBS  := $(SCRIPTS)/setup-libraries.sh
+
+# Upload never compiles. Fail fast if this firmware has not been built yet.
+define require-bin
+	@test -f "$(1)" || { \
+	  echo "error: no firmware at $(1)" >&2; \
+	  echo "error: run $(2) first, then upload to as many boards as you need." >&2; \
+	  exit 1; \
+	}
+endef
 
 .PHONY: help all setup compile build \
         compile-heltec upload-heltec monitor-heltec deploy-heltec \
@@ -67,28 +78,31 @@ help: ## Show available targets
 	@printf '  JOBS=%s (0 = all CPU cores)\n\n' '$(JOBS)'
 	@printf 'Shared targets:\n'
 	@printf '  %-24s %s\n' 'setup' 'Install ESP8266/ESP32 cores and required libraries'
-	@printf '  %-24s %s\n' 'compile / build' 'Compile NodeMCU firmware'
-	@printf '  %-24s %s\n' 'compile-heltec' 'Compile Heltec V3 (ESP32-S3) firmware'
+	@printf '  %-24s %s\n' 'compile / build' 'Compile NodeMCU firmware (does not flash)'
+	@printf '  %-24s %s\n' 'compile-heltec' 'Compile Heltec V3 firmware (does not flash)'
 	@printf '  %-24s %s\n' 'boards' 'List connected boards and serial ports'
 	@printf '  %-24s %s\n' 'clean' 'Remove local build artifacts'
 	@printf '\nHeltec WiFi LoRa 32 V3:\n'
-	@printf '  %-24s %s\n' 'upload-heltec' 'Compile + upload (PORT= or HELTEC_PORT=)'
-	@printf '  %-24s %s\n' 'deploy-heltec' 'Firmware upload (dashboard is seeded on boot)'
+	@printf '  %-24s %s\n' 'upload-heltec' 'Flash last Heltec build (PORT= or HELTEC_PORT=)'
+	@printf '  %-24s %s\n' 'deploy-heltec' 'Compile once, then flash HELTEC_PORT'
 	@printf '  %-24s %s\n' 'monitor-heltec' 'Serial monitor on HELTEC_PORT'
-	@printf '\nPer-board targets (firmware):\n'
-	@printf '  %-24s %s\n' 'upload-board1' 'Compile + upload to board 0001'
-	@printf '  %-24s %s\n' 'upload-board2' 'Compile + upload to board 83430'
-	@printf '  %-24s %s\n' 'upload-both' 'Compile + upload to both boards'
+	@printf '\nPer-board targets (firmware upload only):\n'
+	@printf '  %-24s %s\n' 'upload-board1' 'Flash last NodeMCU build to board 0001'
+	@printf '  %-24s %s\n' 'upload-board2' 'Flash last NodeMCU build to board 83430'
+	@printf '  %-24s %s\n' 'upload-both' 'Flash last NodeMCU build to both boards'
 	@printf '\nPer-board targets (LittleFS):\n'
 	@printf '  %-24s %s\n' 'littlefs-board1' 'Upload data/ to board 0001'
 	@printf '  %-24s %s\n' 'littlefs-board2' 'Upload data/ to board 83430'
 	@printf '  %-24s %s\n' 'littlefs-both' 'Upload data/ to both boards'
 	@printf '  %-24s %s\n' 'littlefs-fresh-board1' 'Wipe + upload data/ on board 0001'
 	@printf '  %-24s %s\n' 'littlefs-fresh-board2' 'Wipe + upload data/ on board 83430'
-	@printf '\nFull deploy (firmware + LittleFS):\n'
-	@printf '  %-24s %s\n' 'deploy-board1' 'Full deploy to board 0001'
-	@printf '  %-24s %s\n' 'deploy-board2' 'Full deploy to board 83430'
-	@printf '  %-24s %s\n' 'deploy-both' 'Full deploy to both boards'
+	@printf '\nCompile then flash (one compile, then upload):\n'
+	@printf '  make compile-heltec && make upload-heltec PORT=/dev/cu.usbserial-XXXX\n'
+	@printf '  make compile && make upload-board1 && make upload-board2\n\n'
+	@printf 'Full deploy (compile + firmware + LittleFS):\n'
+	@printf '  %-24s %s\n' 'deploy-board1' 'Compile, flash, LittleFS → board 0001'
+	@printf '  %-24s %s\n' 'deploy-board2' 'Compile, flash, LittleFS → board 83430'
+	@printf '  %-24s %s\n' 'deploy-both' 'Compile once, flash + LittleFS both boards'
 	@printf '\nSerial monitor:\n'
 	@printf '  %-24s %s\n' 'monitor-board1' 'Monitor board 0001'
 	@printf '  %-24s %s\n' 'monitor-board2' 'Monitor board 83430'
@@ -101,26 +115,32 @@ setup:
 	$(SETUP_LIBS)
 
 compile build:
-	$(ARDUINO_CLI) $(CLI_FLAGS) compile --fqbn $(FQBN) --build-path $(BUILD_NODEMCU) --jobs $(JOBS) $(ROOT)
+	time $(ARDUINO_CLI) $(CLI_FLAGS) compile --fqbn $(FQBN) --build-path $(BUILD_NODEMCU) --jobs $(JOBS) $(ROOT)
 
 compile-heltec:
-	$(ARDUINO_CLI) $(CLI_FLAGS) compile --fqbn $(HELTEC_FQBN) --build-path $(BUILD_HELTEC) --jobs $(JOBS) $(ROOT)
+	time $(ARDUINO_CLI) $(CLI_FLAGS) compile --fqbn $(HELTEC_FQBN) --build-path $(BUILD_HELTEC) --jobs $(JOBS) $(ROOT)
 
-upload-heltec: compile-heltec
-	$(ARDUINO_CLI) $(CLI_FLAGS) upload --fqbn $(HELTEC_FQBN) --port $(HELTEC_PORT) --input-dir $(BUILD_HELTEC)
+upload-heltec:
+	$(call require-bin,$(HELTEC_BIN),make compile-heltec)
+	time $(ARDUINO_CLI) $(CLI_FLAGS) upload --fqbn $(HELTEC_FQBN) --port $(HELTEC_PORT) --input-dir $(BUILD_HELTEC)
 
-deploy-heltec: upload-heltec
+deploy-heltec:
+	$(MAKE) compile-heltec
+	$(MAKE) upload-heltec
 
 monitor-heltec:
 	$(ARDUINO_CLI) $(CLI_FLAGS) monitor --port $(HELTEC_PORT) --config baudrate=$(BAUD)
 
-upload upload-board1 upload-0001: compile
+upload upload-board1 upload-0001:
+	$(call require-bin,$(NODEMCU_BIN),make compile)
 	$(ARDUINO_CLI) $(CLI_FLAGS) upload --fqbn $(FQBN) --port $(BOARD1_PORT) --input-dir $(BUILD_NODEMCU)
 
-upload-board2 upload-83430: compile
+upload-board2 upload-83430:
+	$(call require-bin,$(NODEMCU_BIN),make compile)
 	$(ARDUINO_CLI) $(CLI_FLAGS) upload --fqbn $(FQBN) --port $(BOARD2_PORT) --input-dir $(BUILD_NODEMCU)
 
-upload-both: compile
+upload-both:
+	$(call require-bin,$(NODEMCU_BIN),make compile)
 	$(ARDUINO_CLI) $(CLI_FLAGS) upload --fqbn $(FQBN) --port $(BOARD1_PORT) --input-dir $(BUILD_NODEMCU)
 	$(ARDUINO_CLI) $(CLI_FLAGS) upload --fqbn $(FQBN) --port $(BOARD2_PORT) --input-dir $(BUILD_NODEMCU)
 
@@ -140,11 +160,20 @@ littlefs-fresh-board2:
 
 littlefs-fresh-both: littlefs-fresh-board1 littlefs-fresh-board2
 
-deploy deploy-board1: upload-board1 littlefs-board1
+deploy deploy-board1:
+	$(MAKE) compile
+	$(MAKE) upload-board1
+	$(MAKE) littlefs-board1
 
-deploy-board2: upload-board2 littlefs-board2
+deploy-board2:
+	$(MAKE) compile
+	$(MAKE) upload-board2
+	$(MAKE) littlefs-board2
 
-deploy-both: upload-both littlefs-both
+deploy-both:
+	$(MAKE) compile
+	$(MAKE) upload-both
+	$(MAKE) littlefs-both
 
 monitor monitor-board1:
 	$(ARDUINO_CLI) $(CLI_FLAGS) monitor --port $(BOARD1_PORT) --config baudrate=$(BAUD)

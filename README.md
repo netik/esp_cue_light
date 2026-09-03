@@ -146,21 +146,21 @@ Heltec boards usually appear as `/dev/cu.usbserial-*` (CP2102) or `/dev/cu.usbmo
 
 | Task | What it does |
 |------|----------------|
-| **Arduino: Compile (ESP8266)** | Build NodeMCU firmware |
-| **Arduino: Compile (Heltec V3)** | Build Heltec ESP32-S3 firmware |
-| **Arduino: Upload firmware → Board 0001 / 83430 / Both** | Flash NodeMCU firmware only |
-| **Arduino: Upload firmware → Heltec V3** | Flash Heltec firmware |
+| **Arduino: Compile (ESP8266)** | Build NodeMCU firmware (does not flash) |
+| **Arduino: Compile (Heltec V3)** | Build Heltec ESP32-S3 firmware (does not flash) |
+| **Arduino: Upload firmware → Board 0001 / 83430 / Both** | Flash last NodeMCU build (no compile) |
+| **Arduino: Upload firmware → Heltec V3** | Flash last Heltec build (no compile) |
 | **Arduino: Upload LittleFS → Board 0001 / 83430** | Upload `data/` to NodeMCU flash |
-| **Arduino: Full Deploy → Board 0001 / 83430 / Both** | Firmware + LittleFS |
+| **Arduino: Full Deploy → Board 0001 / 83430 / Both** | Compile, then firmware + LittleFS |
 | **Arduino: Serial Monitor → Board 0001 / 83430 / Heltec V3** | 115200 baud debug output |
 
 ### Makefile targets
 
 ```bash
-make compile          # NodeMCU build only
-make compile-heltec  # Heltec V3 build only
+make compile          # NodeMCU firmware (does not flash)
+make compile-heltec  # Heltec V3 firmware (does not flash)
 
-# Firmware only (skip when data/ unchanged)
+# Flash the last compile (no rebuild). Compile once, then upload to each board.
 make upload-board1
 make upload-board2
 make upload-both

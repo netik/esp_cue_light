@@ -8,7 +8,7 @@ Practical steps for deploying, configuring, and troubleshooting cue-light boards
 
 ## Deployment checklist
 
-1. **Flash firmware** — `make upload-board1` / `make upload-both` for firmware only, or `make deploy-both` if LittleFS also needs updating.
+1. **Flash firmware** — `make compile` then `make upload-board1` / `make upload-both` (upload does not rebuild). `make deploy-both` compiles once, then flashes firmware + LittleFS.
 2. **Join WiFi** — connect each board via captive portal at `/setup`.
 3. **Set System ID and Cue Group** — must match across all boards that should sync.
 4. **Heltec LoRa (optional)** — check **Enable LoRa** and match **LoRa Channel** on every radio Heltec. One Heltec on WiFi with LoRa on will relay to NodeMCU HTTP peers.

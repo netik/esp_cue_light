@@ -115,31 +115,32 @@ void pulseOledReset() {
 }
 
 void sendOledInit() {
-  sendCmd(0xAE);
-  sendCmd(0xD5);
-  sendCmd(0x80);
-  sendCmd(0xA8);
-  sendCmd(0x3F);
-  sendCmd(0xD3);
-  sendCmd(0x00);
-  sendCmd(0x40);
-  sendCmd(0x8D);
-  sendCmd(0x14);
-  sendCmd(0x20);
-  sendCmd(0x00);
-  sendCmd(0xA1);
-  sendCmd(0xC8);
-  sendCmd(0xDA);
-  sendCmd(0x12);
-  sendCmd(0x81);
-  sendCmd(0xCF);
-  sendCmd(0xD9);
-  sendCmd(0xF1);
-  sendCmd(0xDB);
-  sendCmd(0x40);
-  sendCmd(0xA4);
-  sendCmd(0xA6);
-  sendCmd(0xAF);
+  // SSD1306 128x64. Display off while registers are programmed.
+  sendCmd(0xAE);  // display OFF
+  sendCmd(0xD5);  // clock divide / oscillator
+  sendCmd(0x80);  // osc=8, divide=1 (default timing)
+  sendCmd(0xA8);  // multiplex ratio
+  sendCmd(0x3F);  // 64 rows
+  sendCmd(0xD3);  // display offset
+  sendCmd(0x00);  // no COM shift
+  sendCmd(0x40);  // start line = RAM row 0
+  sendCmd(0x8D);  // charge pump
+  sendCmd(0x14);  // enable internal DC-DC
+  sendCmd(0x20);  // memory addressing mode
+  sendCmd(0x00);  // horizontal (matches linear 1024-byte flush)
+  sendCmd(0xA1);  // segment remap: col 127 → SEG0
+  sendCmd(0xC8);  // COM scan COM63→COM0 (A1+C8 = Heltec upright)
+  sendCmd(0xDA);  // COM pins hardware config
+  sendCmd(0x12);  // alternative COM, no L/R remap (128x64)
+  sendCmd(0x81);  // contrast
+  sendCmd(0xCF);  // fairly bright (00..FF)
+  sendCmd(0xD9);  // pre-charge period
+  sendCmd(0xF1);  // phase1=1 DCLK, phase2=15 DCLK
+  sendCmd(0xDB);  // VCOMH deselect
+  sendCmd(0x40);  // ~0.77×VCC
+  sendCmd(0xA4);  // pixels follow GDDRAM (not all-on)
+  sendCmd(0xA6);  // normal (not inverse): 1 in RAM = lit
+  sendCmd(0xAF);  // display ON
 }
 
 bool initOled(bool coldStart) {

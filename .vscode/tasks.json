@@ -61,7 +61,6 @@
         "--input-dir",
         "${workspaceFolder}/build/nodemcu"
       ],
-      "dependsOn": ["Arduino: Compile (ESP8266)"],
       "group": "build",
       "presentation": {
         "reveal": "always",
@@ -82,7 +81,6 @@
         "--input-dir",
         "${workspaceFolder}/build/nodemcu"
       ],
-      "dependsOn": ["Arduino: Compile (ESP8266)"],
       "group": "build",
       "presentation": {
         "reveal": "always",
@@ -147,6 +145,7 @@
     {
       "label": "Arduino: Full Deploy → Board 0001",
       "dependsOn": [
+        "Arduino: Compile (ESP8266)",
         "Arduino: Upload firmware → Board 0001",
         "Arduino: Upload LittleFS → Board 0001"
       ],
@@ -157,6 +156,7 @@
     {
       "label": "Arduino: Full Deploy → Board 83430",
       "dependsOn": [
+        "Arduino: Compile (ESP8266)",
         "Arduino: Upload firmware → Board 83430",
         "Arduino: Upload LittleFS → Board 83430"
       ],
@@ -260,7 +260,6 @@
         "--input-dir",
         "${workspaceFolder}/build/heltec"
       ],
-      "dependsOn": ["Arduino: Compile (Heltec V3)"],
       "group": "build",
       "presentation": {
         "reveal": "always",
