@@ -672,6 +672,7 @@ bool PeerSync::parseJsonToSnapshot(const char* json, CueSnapshot& snap) const {
 
 /**
  * @brief Apply newer seqs from @p snap; relay onto the other transport.
+ * @param snap Incoming cue snapshot (system_id / cue_group must match).
  * @param source @c Wifi → schedule LoRa TX; @c Lora → HTTP push to peers.
  * @retval true At least one cue was updated.
  */

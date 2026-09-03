@@ -8,6 +8,14 @@ For building, flashing, hardware pins, and WiFi setup, start with the **[main RE
 
 ## Reading guide
 
+**Code reference (Doxygen)**
+
+```bash
+make docs          # HTML → docs/code/index.html
+```
+
+Requires [Doxygen](https://www.doxygen.nl/). Generated HTML is gitignored.
+
 **Setting up boards for a show**
 
 1. [Main README — Quick start](../README.md#quick-start)
@@ -29,6 +37,8 @@ For building, flashing, hardware pins, and WiFi setup, start with the **[main RE
 
 | Document | Contents |
 |----------|----------|
+| [USER_MANUAL.md](../USER_MANUAL.md) | Operator guide: buttons, OLED, WiFi, LoRa |
+| [Code API (generated)](./code/index.html) | Doxygen HTML (`make docs`) |
 | [Peer sync architecture](./peer-sync-architecture.md) | Problem statement, peer-equality model, push + poll sync, LoRa relay, sequence numbers, timing, failure modes |
 | [Network protocol](./network-protocol.md) | mDNS service record, `GET`/`POST /api/cues`, LoRa packet, sync algorithm, Python examples |
 | [Operations guide](./operations-guide.md) | Deployment checklist, serial monitor output, tuning, troubleshooting |

@@ -41,6 +41,10 @@ BUILD_HELTEC  := $(ROOT)build/heltec
 NODEMCU_BIN   := $(BUILD_NODEMCU)/cue_light_webserver.ino.bin
 HELTEC_BIN    := $(BUILD_HELTEC)/cue_light_webserver.ino.bin
 
+DOXYGEN     ?= doxygen
+DOXYFILE    := $(ROOT)Doxyfile
+DOCS_HTML   := $(ROOT)docs/code
+
 SCRIPTS     := $(ROOT)scripts
 UPLOAD_FS   := $(SCRIPTS)/upload-littlefs.sh
 SETUP_LIBS  := $(SCRIPTS)/setup-libraries.sh
@@ -61,7 +65,7 @@ endef
         littlefs-fresh littlefs-fresh-board1 littlefs-fresh-board2 littlefs-fresh-both \
         deploy deploy-board1 deploy-board2 deploy-both \
         monitor monitor-board1 monitor-board2 \
-        boards list-boards clean
+        boards list-boards clean docs docs-clean
 
 .DEFAULT_GOAL := help
 
@@ -81,6 +85,8 @@ help: ## Show available targets
 	@printf '  %-24s %s\n' 'compile / build' 'Compile NodeMCU firmware (does not flash)'
 	@printf '  %-24s %s\n' 'compile-heltec' 'Compile Heltec V3 firmware (does not flash)'
 	@printf '  %-24s %s\n' 'boards' 'List connected boards and serial ports'
+	@printf '  %-24s %s\n' 'docs' 'Generate Doxygen HTML in docs/code/'
+	@printf '  %-24s %s\n' 'docs-clean' 'Remove generated HTML docs'
 	@printf '  %-24s %s\n' 'clean' 'Remove local build artifacts'
 	@printf '\nHeltec WiFi LoRa 32 V3:\n'
 	@printf '  %-24s %s\n' 'upload-heltec' 'Flash last Heltec build (PORT= or HELTEC_PORT=)'
@@ -180,6 +186,18 @@ monitor monitor-board1:
 
 monitor-board2:
 	$(ARDUINO_CLI) $(CLI_FLAGS) monitor --port $(BOARD2_PORT) --config baudrate=$(BAUD)
+
+docs:
+	@command -v $(DOXYGEN) >/dev/null || { \
+	  echo "error: doxygen not found. Install with: brew install doxygen" >&2; \
+	  exit 1; \
+	}
+	FIRMWARE_VERSION=$$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' $(ROOT)config.h) \
+	  $(DOXYGEN) $(DOXYFILE)
+	@printf 'HTML docs: %sindex.html\n' '$(DOCS_HTML)/'
+
+docs-clean:
+	rm -rf $(DOCS_HTML)
 
 boards list-boards:
 	$(ARDUINO_CLI) $(CLI_FLAGS) board list

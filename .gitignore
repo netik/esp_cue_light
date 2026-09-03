@@ -2,3 +2,4 @@ build/
 *.bin
 .littlefs-backup/
 tools/cue_listen
+docs/code/

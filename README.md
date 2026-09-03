@@ -180,6 +180,9 @@ make deploy-both
 make upload PORT=/dev/cu.usbserial-0001
 
 make monitor-board1   # serial monitor, 115200 baud
+
+make docs             # Doxygen HTML → docs/code/index.html
+make docs-clean
 ```
 
 ### LittleFS and setup config

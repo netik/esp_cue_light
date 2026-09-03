@@ -619,7 +619,7 @@ void cueDisplayPowerDown() {
 /**
  * @brief Live UI: title, battery, IP, peer count, cue box(es).
  *
- * If the panel was lost, retries @ref initOled up to 8 times.
+ * If the panel was lost, retries initOled up to 8 times.
  */
 void cueDisplayRefresh() {
   if (!g_ready) {

@@ -1,0 +1,112 @@
+# Cue Light — Doxygen config. HTML is written to docs/code/.
+#   make docs
+
+PROJECT_NAME           = "Cue Light"
+PROJECT_NUMBER         = $(FIRMWARE_VERSION)
+PROJECT_BRIEF          = "WiFi + LoRa cue-light firmware (NodeMCU / Heltec V3)"
+OUTPUT_DIRECTORY       = docs
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+
+OUTPUT_LANGUAGE        = English
+BRIEF_MEMBER_DESC      = YES
+REPEAT_BRIEF           = YES
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = NO
+MULTILINE_CPP_IS_BRIEF = NO
+TAB_SIZE               = 2
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+BUILTIN_STL_SUPPORT    = NO
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+INTERNAL_DOCS          = NO
+CASE_SENSE_NAMES       = YES
+SORT_MEMBER_DOCS       = YES
+SORT_BRIEF_DOCS        = NO
+
+INPUT                  = . \
+                         README.md \
+                         USER_MANUAL.md \
+                         docs
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.c \
+                         *.cpp \
+                         *.h \
+                         *.ino \
+                         *.md
+RECURSIVE              = YES
+EXCLUDE                = build \
+                         docs/code \
+                         data \
+                         scripts
+EXCLUDE_PATTERNS       = */.git/* \
+                         */build/* \
+                         */docs/code/*
+EXCLUDE_SYMLINKS       = YES
+EXAMPLE_PATTERNS       =
+USE_MDFILE_AS_MAINPAGE = USER_MANUAL.md
+
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+REFERENCES_LINK_SOURCE = YES
+SOURCE_TOOLTIPS        = YES
+VERBATIM_HEADERS       = YES
+
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+SEARCH_INCLUDES        = NO
+SKIP_FUNCTION_MACROS   = YES
+PREDEFINED             = "ARDUINO=100" \
+                         "ARDUINO_ARCH_ESP32=1" \
+                         "CUE_BOARD_HELTEC_V3=1" \
+                         "CUE_HAS_OLED=1" \
+                         "CUE_HAS_LORA=1" \
+                         "IRAM_ATTR=" \
+                         "PSTR(x)=x" \
+                         "F(x)=x"
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = code
+HTML_FILE_EXTENSION    = .html
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+HTML_COLORSTYLE        = AUTO_LIGHT
+SEARCHENGINE           = YES
+
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_RTF           = NO
+GENERATE_XML           = NO
+
+HAVE_DOT               = NO
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = NO
+INCLUDED_BY_GRAPH      = NO
+DIRECTORY_GRAPH        = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+WARN_AS_ERROR          = NO
+WARN_FORMAT            = "$file:$line: $text"
+WARN_LOGFILE           =
+
+ALIASES                =
+EXTENSION_MAPPING      = ino=C++
+FILTER_SOURCE_FILES    = NO
