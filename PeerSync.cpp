@@ -1,3 +1,12 @@
+/**
+ * @file PeerSync.cpp
+ * @brief mDNS discovery, HTTP POST push, GET poll, and LoRa/WiFi relay.
+ *
+ * Boards are equals. A local change POSTs @c /api/cues to known peers and
+ * transmits LoRa. Incoming snapshots apply when the per-cue sequence is newer.
+ * WiFi applies are forwarded to LoRa; LoRa applies are POSTed to HTTP peers.
+ */
+
 #include "PeerSync.h"
 
 #include "CueIO.h"
@@ -6,6 +15,12 @@
 PeerSync peerSync;
 
 namespace {
+/**
+ * @brief Pointer to the characters after `"key":` in a compact JSON object.
+ * @param json Entire JSON string.
+ * @param key Field name without quotes.
+ * @return Pointer at the value, or nullptr if the key is missing.
+ */
   const char* fieldValue(const char* json, const char* key) {
     char pattern[20];
     snprintf(pattern, sizeof(pattern), "\"%s\":", key);
@@ -16,6 +31,14 @@ namespace {
   return start + strlen(pattern);
 }
 
+/**
+ * @brief Parse an unsigned integer JSON field with an inclusive max.
+ * @param json Entire JSON string.
+ * @param key Field name.
+ * @param[out] out Parsed value.
+ * @param maxValue Reject if the number exceeds this.
+ * @retval true Field present and in range.
+ */
 bool parseUintField(const char* json, const char* key, uint32_t* out,
                     uint32_t maxValue) {
   const char* value = fieldValue(json, key);
@@ -33,15 +56,25 @@ bool parseUintField(const char* json, const char* key, uint32_t* out,
   return true;
 }
 
+/**
+ * @brief Sequence comparison that treats wrap-around as unsigned 32-bit.
+ * @retval true @p incoming is different and not more than 2^31 behind @p current.
+ */
 bool isSeqNewer(uint32_t incoming, uint32_t current) {
   return incoming != current && (incoming - current) < 0x80000000UL;
 }
 
+/**
+ * @brief mDNS / STA hostname: same string as the setup AP SSID (@c CueLight-XXXX).
+ */
 void buildHostname(char* hostname, size_t size) {
   cueDefaultSsid(hostname, size);
 }
 
 #ifndef ARDUINO_ARCH_ESP32
+/**
+ * @brief LEAmDNS query callback; forwards IPv4 answers to @ref PeerSync.
+ */
 void mdnsServiceQueryCallback(MDNSResponder::MDNSServiceInfo serviceInfo,
                               MDNSResponder::AnswerType answerType,
                               bool added) {
@@ -50,10 +83,16 @@ void mdnsServiceQueryCallback(MDNSResponder::MDNSServiceInfo serviceInfo,
 #endif
 }  // namespace
 
+/**
+ * @brief Format dotted-quad IPv4 into @p buffer.
+ */
 void PeerSync::formatIp(char* buffer, size_t size, const IPAddress& ip) {
   snprintf(buffer, size, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
 }
 
+/**
+ * @brief Store system_id / cue_group and refresh mDNS TXT if already advertising.
+ */
 void PeerSync::setNetworkFilter(uint16_t systemId, uint16_t cueGroup) {
   _systemId = systemId;
   _cueGroup = cueGroup;
@@ -62,6 +101,9 @@ void PeerSync::setNetworkFilter(uint16_t systemId, uint16_t cueGroup) {
   }
 }
 
+/**
+ * @brief Publish @c system_id and @c cue_group TXT on `_cuelight._tcp`.
+ */
 void PeerSync::updateServiceTxt() {
 #ifdef ARDUINO_ARCH_ESP32
   char value[8];
@@ -86,6 +128,9 @@ void PeerSync::updateServiceTxt() {
 }
 
 #ifndef ARDUINO_ARCH_ESP32
+/**
+ * @brief True if the peer's TXT is missing or matches our system_id / cue_group.
+ */
 bool PeerSync::peerMatchesFilter(
     MDNSResponder::MDNSServiceInfo& serviceInfo) {
   if (!serviceInfo.txtAvailable()) {
@@ -117,6 +162,10 @@ bool PeerSync::peerMatchesFilter(
 }
 #endif
 
+/**
+ * @brief Start mDNS hostname + service once STA has an IP.
+ * @retval false Not on WiFi, or mDNS begin/addService failed.
+ */
 bool PeerSync::begin() {
   if (WiFi.status() != WL_CONNECTED || WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
     Serial.print(F("Peer sync unavailable until WiFi is connected."));
@@ -181,6 +230,9 @@ bool PeerSync::begin() {
   return true;
 }
 
+/**
+ * @brief Copy live CueIO state plus our network filter into @p snap.
+ */
 void PeerSync::fillSnapshot(CueSnapshot& snap) const {
   snap.systemId = _systemId;
   snap.cueGroup = _cueGroup;
@@ -190,6 +242,11 @@ void PeerSync::fillSnapshot(CueSnapshot& snap) const {
   snap.seq2 = cueIO.getCueSeq(CUE_NUMBER_2);
 }
 
+/**
+ * @brief Compact JSON used by GET /api/cues and HTTP peer push.
+ * @param[out] buffer Destination.
+ * @param size Capacity of @p buffer.
+ */
 void PeerSync::buildStateJson(char* buffer, size_t size) const {
   CueSnapshot snap;
   fillSnapshot(snap);
@@ -200,6 +257,10 @@ void PeerSync::buildStateJson(char* buffer, size_t size) const {
            snap.seq2);
 }
 
+/**
+ * @brief Parse HTTP body JSON and apply as a WiFi-sourced snapshot.
+ * @retval true At least one cue seq was newer and applied.
+ */
 bool PeerSync::applyIncomingJson(const char* json) {
   CueSnapshot snap;
   if (!parseJsonToSnapshot(json, snap)) {
@@ -208,14 +269,23 @@ bool PeerSync::applyIncomingJson(const char* json) {
   return applyIncomingState(snap, CueTransport::Wifi);
 }
 
+/**
+ * @brief Suppress background GET poll briefly after a local or inbound change.
+ */
 void PeerSync::markLocalChange() {
   _suppressPollUntilMs = millis() + PEER_SYNC_POLL_SUPPRESS_MS;
 }
 
+/** @brief Same poll suppress as @ref markLocalChange after a remote apply. */
 void PeerSync::markInboundApply() {
   _suppressPollUntilMs = millis() + PEER_SYNC_POLL_SUPPRESS_MS;
 }
 
+/**
+ * @brief Local button path: LoRa TX immediately, HTTP push if peers exist.
+ *
+ * If the peer table is empty, sets `_pushDeferred` until mDNS finds someone.
+ */
 void PeerSync::notifyLocalChange() {
   markLocalChange();
   cueLora.sendState();
@@ -235,11 +305,17 @@ void PeerSync::notifyLocalChange() {
   schedulePush();
 }
 
+/**
+ * @brief Build `http://a.b.c.d/api/cues` for a peer.
+ */
 void PeerSync::formatPeerUrl(char* buffer, size_t size, const IPAddress& ip) {
   snprintf(buffer, size, "http://%u.%u.%u.%u/api/cues", ip[0], ip[1], ip[2],
            ip[3]);
 }
 
+/**
+ * @brief Arm a round-robin HTTP POST of current state to every valid peer.
+ */
 void PeerSync::schedulePush() {
   const uint8_t peers = countPeers();
   if (peers == 0) {
@@ -255,6 +331,10 @@ void PeerSync::schedulePush() {
   _pushRemaining = peers;
 }
 
+/**
+ * @brief POST JSON snapshot to one peer.
+ * @retval true HTTP 200.
+ */
 bool PeerSync::pushToPeer(const PeerEntry& peer, const char* json) {
   WiFiClient client;
   HTTPClient http;
@@ -272,6 +352,10 @@ bool PeerSync::pushToPeer(const PeerEntry& peer, const char* json) {
   return code == HTTP_CODE_OK;
 }
 
+/**
+ * @brief Send at most one POST per loop iteration so buttons stay responsive.
+ * @retval true A push attempt ran (caller should skip poll this tick).
+ */
 bool PeerSync::processPendingPush() {
   if (!_pushPending) {
     return false;
@@ -320,6 +404,10 @@ bool PeerSync::processPendingPush() {
   return false;
 }
 
+/**
+ * @brief Find a valid table slot with this IP.
+ * @return Pointer or nullptr.
+ */
 PeerSync::PeerEntry* PeerSync::findPeer(IPAddress ip) {
   for (auto& peer : _peers) {
     if (peer.valid && peer.ip == ip) {
@@ -329,6 +417,9 @@ PeerSync::PeerEntry* PeerSync::findPeer(IPAddress ip) {
   return nullptr;
 }
 
+/**
+ * @brief Return existing peer or occupy a free slot (max @c PEER_SYNC_MAX_PEERS).
+ */
 PeerSync::PeerEntry* PeerSync::allocPeer(IPAddress ip) {
   PeerEntry* existing = findPeer(ip);
   if (existing != nullptr) {
@@ -352,6 +443,9 @@ PeerSync::PeerEntry* PeerSync::allocPeer(IPAddress ip) {
   return nullptr;
 }
 
+/**
+ * @brief Mark @p ip seen now; flush a deferred push if this is the first peer.
+ */
 void PeerSync::touchPeer(IPAddress ip) {
   const bool hadPeers = countPeers() > 0;
   PeerEntry* peer = allocPeer(ip);
@@ -365,6 +459,9 @@ void PeerSync::touchPeer(IPAddress ip) {
   }
 }
 
+/**
+ * @brief Invalidate a peer slot (unused for mDNS goodbye; flaps were dropping live boards).
+ */
 void PeerSync::removePeer(IPAddress ip) {
   PeerEntry* peer = findPeer(ip);
   if (peer == nullptr) {
@@ -377,6 +474,9 @@ void PeerSync::removePeer(IPAddress ip) {
   peer->valid = false;
 }
 
+/**
+ * @brief Queue an mDNS IPv4 event from ISR/callback context (ESP8266).
+ */
 void PeerSync::queueMdnsEvent(IPAddress ip, bool added) {
   if (_mdnsEventCount >= PEER_SYNC_MDNS_EVENT_QUEUE) {
     return;
@@ -389,6 +489,9 @@ void PeerSync::queueMdnsEvent(IPAddress ip, bool added) {
   interrupts();
 }
 
+/**
+ * @brief Drain queued mDNS events; additions call @ref touchPeer.
+ */
 void PeerSync::processMdnsEvents() {
   MdnsEvent events[PEER_SYNC_MDNS_EVENT_QUEUE];
   uint8_t count = 0;
@@ -409,6 +512,9 @@ void PeerSync::processMdnsEvents() {
   }
 }
 
+/**
+ * @brief Count valid WiFi mDNS peers (not LoRa heard radios).
+ */
 uint8_t PeerSync::countPeers() const {
   uint8_t count = 0;
   for (const auto& peer : _peers) {
@@ -420,6 +526,9 @@ uint8_t PeerSync::countPeers() const {
 }
 
 #ifndef ARDUINO_ARCH_ESP32
+/**
+ * @brief ESP8266 LEAmDNS IPv4 callback: enqueue other boards' addresses.
+ */
 void PeerSync::handleMdnsAnswer(MDNSResponder::MDNSServiceInfo& serviceInfo,
                                 MDNSResponder::AnswerType answerType,
                                 bool added) {
@@ -437,6 +546,11 @@ void PeerSync::handleMdnsAnswer(MDNSResponder::MDNSServiceInfo& serviceInfo,
 }
 #endif
 
+/**
+ * @brief Browse `_cuelight._tcp` and refresh the peer table (ESP32 query or LEAmDNS).
+ *
+ * Skips self IP and TXT that does not match system_id / cue_group.
+ */
 void PeerSync::refreshPeersFromMdns() {
 #ifdef ARDUINO_ARCH_ESP32
   mdns_result_t* results = nullptr;
@@ -508,6 +622,9 @@ void PeerSync::refreshPeersFromMdns() {
                   countPeers());
 }
 
+/**
+ * @brief Drop WiFi peers not seen for @c PEER_SYNC_PEER_STALE_MS.
+ */
 void PeerSync::expireStalePeers() {
   const unsigned long now = millis();
   for (auto& peer : _peers) {
@@ -523,6 +640,10 @@ void PeerSync::expireStalePeers() {
   }
 }
 
+/**
+ * @brief Parse the six cue-state fields from a compact JSON object.
+ * @retval false Any field missing or out of range.
+ */
 bool PeerSync::parseJsonToSnapshot(const char* json, CueSnapshot& snap) const {
   uint32_t systemId = 0;
   uint32_t cueGroup = 0;
@@ -549,6 +670,11 @@ bool PeerSync::parseJsonToSnapshot(const char* json, CueSnapshot& snap) const {
   return true;
 }
 
+/**
+ * @brief Apply newer seqs from @p snap; relay onto the other transport.
+ * @param source @c Wifi → schedule LoRa TX; @c Lora → HTTP push to peers.
+ * @retval true At least one cue was updated.
+ */
 bool PeerSync::applyIncomingState(const CueSnapshot& snap, CueTransport source) {
   if (snap.systemId != _systemId || snap.cueGroup != _cueGroup) {
     return false;
@@ -588,6 +714,10 @@ bool PeerSync::applyIncomingState(const CueSnapshot& snap, CueTransport source) 
   return true;
 }
 
+/**
+ * @brief GET /api/cues from one peer and apply if sequences are newer.
+ * @retval true HTTP 200 and a well-formed body (apply may still be a no-op).
+ */
 bool PeerSync::pollPeer(const PeerEntry& peer) {
   WiFiClient client;
   HTTPClient http;
@@ -645,6 +775,12 @@ bool PeerSync::pollPeer(const PeerEntry& peer) {
   return true;
 }
 
+/**
+ * @brief Main sync tick: LoRa RX/TX relay, push, mDNS refresh, then one GET poll.
+ *
+ * Push always wins over discovery and poll. mDNS refresh and poll do not share
+ * the same iteration.
+ */
 void PeerSync::loop() {
   cueLora.loop();
 

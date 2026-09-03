@@ -1,3 +1,13 @@
+/**
+ * @file CueIO.cpp
+ * @brief Local cue lamps, buttons, status LED, and Heltec power-off.
+ *
+ * Owns two cue channels (red/green common-anode RGB). A local button press
+ * toggles state, bumps the per-cue sequence number, and asks @ref PeerSync to
+ * push. Heltec PRG is polled (short press = cue, 3 s hold = deep sleep) so it
+ * is not attached as a falling-edge ISR.
+ */
+
 #include "CueIO.h"
 
 #include "CueDisplay.h"
@@ -15,12 +25,20 @@
 CueIO cueIO;
 
 namespace {
+/** @brief Bit0 = cue 1, bit1 = cue 2. Set from GPIO ISRs, consumed in loop. */
 volatile uint8_t g_btnPendingMask = 0;
 
+/** @brief Falling-edge ISR for the Cue 1 header button. */
 void IRAM_ATTR btn1Isr() { g_btnPendingMask |= 0x01; }
 
+/** @brief Falling-edge ISR for the Cue 2 header button. */
 void IRAM_ATTR btn2Isr() { g_btnPendingMask |= 0x02; }
 
+/**
+ * @brief Whether this firmware build drives a physical button for @p cueNumber.
+ * @param cueNumber 1-based cue index.
+ * @return false when @c CUE_LOCAL excludes that cue.
+ */
 bool localButtonEnabled(uint8_t cueNumber) {
 #if CUE_LOCAL == CUE_LOCAL_ONE
   return cueNumber == CUE_NUMBER_1;
@@ -33,6 +51,11 @@ bool localButtonEnabled(uint8_t cueNumber) {
 }
 }  // namespace
 
+/**
+ * @brief Look up a mutable channel by 1-based cue number.
+ * @param cueNumber Cue 1 or 2.
+ * @return Pointer into `_cues`, or nullptr if out of range.
+ */
 CueIO::CueChannel* CueIO::cueByNumber(uint8_t cueNumber) {
   if (cueNumber < 1 || cueNumber > CUE_COUNT) {
     return nullptr;
@@ -40,6 +63,7 @@ CueIO::CueChannel* CueIO::cueByNumber(uint8_t cueNumber) {
   return &_cues[cueNumber - 1];
 }
 
+/** @copydoc CueIO::cueByNumber(uint8_t) */
 const CueIO::CueChannel* CueIO::cueByNumber(uint8_t cueNumber) const {
   if (cueNumber < 1 || cueNumber > CUE_COUNT) {
     return nullptr;
@@ -47,11 +71,21 @@ const CueIO::CueChannel* CueIO::cueByNumber(uint8_t cueNumber) const {
   return &_cues[cueNumber - 1];
 }
 
+/**
+ * @brief Drive this cue's red and green cathodes from @c cue.state.
+ * @param cue Channel whose GPIO pins and state are applied.
+ *
+ * Common-anode lamps: GPIO LOW = color on. Red and green are never both on.
+ */
 void CueIO::applyOutputs(CueChannel& cue) {
   digitalWrite(cue.redPin, cue.state == CUE_STATE_RED ? LAMP_ON : LAMP_OFF);
   digitalWrite(cue.greenPin, cue.state == CUE_STATE_GREEN ? LAMP_ON : LAMP_OFF);
 }
 
+/**
+ * @brief Blink-pattern helper used before @ref begin during the WiFi-wipe window.
+ * @param state @c CUE_STATE_RED or @c CUE_STATE_GREEN for all local lamps.
+ */
 void CueIO::setDfmLamps(uint8_t state) {
   const uint8_t redLevel = state == CUE_STATE_RED ? LAMP_ON : LAMP_OFF;
   const uint8_t greenLevel = state == CUE_STATE_GREEN ? LAMP_ON : LAMP_OFF;
@@ -70,6 +104,11 @@ void CueIO::setDfmLamps(uint8_t state) {
 #endif
 }
 
+/**
+ * @brief Mirror the local status cue onto the onboard LED and refresh the OLED.
+ *
+ * Status cue is Cue 1 unless @c CUE_LOCAL_TWO, which uses Cue 2.
+ */
 void CueIO::updateStatusLed() {
   digitalWrite(PIN_STATUS_LED, getCueState(CUE_STATUS_NUMBER) == CUE_STATE_GREEN
                                      ? STATUS_LED_ON
@@ -77,6 +116,12 @@ void CueIO::updateStatusLed() {
   cueDisplayRefresh();
 }
 
+/**
+ * @brief Configure lamp GPIOs, pull-ups, and (non-PRG) button interrupts.
+ *
+ * Cues start red, seq 0. Heltec PRG is not given an ISR; @ref pollPrimaryButton
+ * distinguishes a tap from a power-off hold.
+ */
 void CueIO::begin() {
   _cues[0] = {CUE_NUMBER_1, PIN_BTN_CUE1, PIN_CUE1_RED, PIN_CUE1_GREEN,
               CUE_STATE_RED, 0, false, true, 0, 0};
@@ -121,16 +166,32 @@ void CueIO::begin() {
 #endif
 }
 
+/**
+ * @brief Current red/green state for one cue.
+ * @param cueNumber 1-based cue index.
+ * @return @c CUE_STATE_RED or @c CUE_STATE_GREEN; red if @p cueNumber is invalid.
+ */
 uint8_t CueIO::getCueState(uint8_t cueNumber) const {
   const CueChannel* cue = cueByNumber(cueNumber);
   return cue ? cue->state : CUE_STATE_RED;
 }
 
+/**
+ * @brief Monotonic sequence used by peer sync (newer seq wins).
+ * @param cueNumber 1-based cue index.
+ * @return Sequence, or 0 if @p cueNumber is invalid.
+ */
 uint32_t CueIO::getCueSeq(uint8_t cueNumber) const {
   const CueChannel* cue = cueByNumber(cueNumber);
   return cue ? cue->seq : 0;
 }
 
+/**
+ * @brief Apply a peer/LoRa snapshot without incrementing seq or re-pushing.
+ * @param cueNumber Cue to update.
+ * @param state New red/green value.
+ * @param seq Remote sequence to store (already known to be newer).
+ */
 void CueIO::applyRemoteCueState(uint8_t cueNumber, uint8_t state, uint32_t seq) {
   CueChannel* cue = cueByNumber(cueNumber);
   if (cue == nullptr || state > CUE_STATE_GREEN) {
@@ -146,6 +207,14 @@ void CueIO::applyRemoteCueState(uint8_t cueNumber, uint8_t state, uint32_t seq) 
                   state ? PSTR("GREEN") : PSTR("RED"), seq);
 }
 
+/**
+ * @brief Local state change; optionally bump seq and notify peers.
+ * @param cueNumber Cue to update.
+ * @param state New red/green value.
+ * @param sync If true, increment seq and call @ref PeerSync::notifyLocalChange.
+ *
+ * No-op if @p state already matches.
+ */
 void CueIO::setCueState(uint8_t cueNumber, uint8_t state, bool sync) {
   CueChannel* cue = cueByNumber(cueNumber);
   if (cue == nullptr || state > CUE_STATE_GREEN || cue->state == state) {
@@ -167,6 +236,12 @@ void CueIO::setCueState(uint8_t cueNumber, uint8_t state, bool sync) {
   }
 }
 
+/**
+ * @brief Consume one armed falling-edge press: toggle and sync.
+ * @param cue Channel whose button fired.
+ * @retval true Toggle was applied.
+ * @retval false Not armed, pin not LOW, or still in @c BTN_LOCKOUT_MS.
+ */
 bool CueIO::acceptButtonPress(CueChannel& cue) {
   if (!cue.armed) {
     return false;
@@ -190,6 +265,9 @@ bool CueIO::acceptButtonPress(CueChannel& cue) {
   return true;
 }
 
+/**
+ * @brief Drain @c g_btnPendingMask (ISR bits) and accept each pending press.
+ */
 void CueIO::processPendingButtons() {
   uint8_t pending;
   noInterrupts();
@@ -206,6 +284,12 @@ void CueIO::processPendingButtons() {
   }
 }
 
+/**
+ * @brief Re-arm a header button after it has been released for @c BTN_RELEASE_ARM_MS.
+ * @param cue Channel to debounce.
+ *
+ * Prevents contact bounce from generating a second toggle on the same press.
+ */
 void CueIO::pollButton(CueChannel& cue) {
   const bool pressed = digitalRead(cue.buttonPin) == LOW;
   const unsigned long now = millis();
@@ -225,6 +309,12 @@ void CueIO::pollButton(CueChannel& cue) {
 
 #ifdef CUE_BOARD_HELTEC_V3
 
+/**
+ * @brief Drop GPIO holds left from deep sleep so Vext, lamps, and LoRa pins work.
+ *
+ * Must run before OLED/WiFi bring-up on Heltec. If wakeup was EXT0 (PRG),
+ * deinit RTC on GPIO 0 so it can be a normal input again.
+ */
 void CueIO::releaseSleepHolds() {
   gpio_deep_sleep_hold_dis();
   gpio_hold_dis((gpio_num_t)PIN_VEXT);
@@ -242,6 +332,10 @@ void CueIO::releaseSleepHolds() {
   pinMode(PIN_BTN_PRIMARY, INPUT_PULLUP);
 }
 
+/**
+ * @brief Channel whose button pin is the onboard PRG (Cue 1 or Cue 2 per CUE_LOCAL).
+ * @return Matching channel, or nullptr if PRG is not mapped to a local cue.
+ */
 CueIO::CueChannel* CueIO::primaryCue() {
   for (auto& cue : _cues) {
     if (cue.buttonPin == PIN_BTN_PRIMARY &&
@@ -252,6 +346,12 @@ CueIO::CueChannel* CueIO::primaryCue() {
   return nullptr;
 }
 
+/**
+ * @brief Heltec PRG: ignore until release after wake, 3 s hold = sleep, tap = toggle.
+ *
+ * Evaluated every @ref loop. Toggle happens on release so a power-off hold
+ * does not also change the cue.
+ */
 void CueIO::pollPrimaryButton() {
   const bool pressed = digitalRead(PIN_BTN_PRIMARY) == LOW;
   const unsigned long now = millis();
@@ -292,6 +392,12 @@ void CueIO::pollPrimaryButton() {
   _primaryLongPressHandled = false;
 }
 
+/**
+ * @brief Show -OFF-, cut WiFi/LoRa/OLED, hold GPIOs, deep-sleep until PRG goes LOW.
+ *
+ * Waits for PRG release first so the same hold that entered this function
+ * does not immediately wake the chip. USB charging still works in sleep.
+ */
 void CueIO::enterPowerOff() {
   Serial.print(F("Power off. Tap PRG to wake."));
   Serial.print(LINE_END);
@@ -327,6 +433,7 @@ void CueIO::enterPowerOff() {
   gpio_hold_en((gpio_num_t)PIN_LORA_NSS);
   gpio_deep_sleep_hold_en();
 
+  /* sleep until primary button is released, releasing it puts us to sleep */
   while (digitalRead(PIN_BTN_PRIMARY) == LOW) {
     delay(10);
   }
@@ -343,6 +450,9 @@ void CueIO::enterPowerOff() {
 
 #endif
 
+/**
+ * @brief Main I/O tick: PRG poll, header debounce, ISR presses, 1 Hz OLED refresh.
+ */
 void CueIO::loop() {
 #ifdef CUE_BOARD_HELTEC_V3
   pollPrimaryButton();

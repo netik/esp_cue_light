@@ -1,3 +1,11 @@
+/**
+ * @file CueDisplay.cpp
+ * @brief Heltec 0.96" SSD1306 (128×64, I2C 0x3C) status UI; no-op on NodeMCU.
+ *
+ * Bit-banged from a 1024-byte page buffer. Title is @c CueLight-XXXX. Peer
+ * count is WiFi mDNS peers plus LoRa heard radios.
+ */
+
 #include "CueDisplay.h"
 
 #include "CueIO.h"
@@ -8,12 +16,17 @@
 
 #if !CUE_HAS_OLED
 
+/**
+ * @name NodeMCU stubs
+ * @{
+ */
 void cueDisplayBegin() {}
 void cueDisplayRefresh() {}
 void cueDisplaySplash() {}
 void cueDisplayShowOff() {}
 void cueDisplayShowWifiWiped() {}
 void cueDisplayPowerDown() {}
+/** @} */
 
 #else
 
@@ -22,14 +35,14 @@ void cueDisplayPowerDown() {}
 
 namespace {
 
-constexpr uint8_t kWidth = 128;
-constexpr uint8_t kPages = 8;
+constexpr uint8_t kWidth = 128;   ///< SSD1306 columns.
+constexpr uint8_t kPages = 8;     ///< 64 rows / 8 bits per page.
 constexpr uint16_t kBufSize = 1024;
 
-uint8_t g_buf[kBufSize];
-bool g_ready = false;
+uint8_t g_buf[kBufSize];  ///< GDDRAM image, horizontal addressing.
+bool g_ready = false;     ///< True after a successful I2C probe + init.
 
-// 5x7 ASCII 0x20-0x5A (space through Z). Column-major, LSB = top.
+/** 5×7 ASCII 0x20–0x5A. Column-major, LSB = top pixel of each column. */
 const uint8_t kFont[][5] PROGMEM = {
     {0x00, 0x00, 0x00, 0x00, 0x00},  // space
     {0x00, 0x00, 0x5F, 0x00, 0x00},  // !
@@ -92,6 +105,10 @@ const uint8_t kFont[][5] PROGMEM = {
     {0x61, 0x51, 0x49, 0x45, 0x43},  // Z
 };
 
+/**
+ * @brief Write one SSD1306 command byte (control 0x00).
+ * @param cmd Register or data byte for a multi-byte command.
+ */
 void sendCmd(uint8_t cmd) {
   Wire.beginTransmission(OLED_I2C_ADDR);
   Wire.write(0x00);
@@ -99,11 +116,18 @@ void sendCmd(uint8_t cmd) {
   Wire.endTransmission();
 }
 
+/**
+ * @brief ACK probe at @c OLED_I2C_ADDR.
+ * @retval true Device NACKed not — i.e. present.
+ */
 bool probeOled() {
   Wire.beginTransmission(OLED_I2C_ADDR);
   return Wire.endTransmission() == 0;
 }
 
+/**
+ * @brief Hardware reset pulse on @c PIN_OLED_RST (active LOW).
+ */
 void pulseOledReset() {
   pinMode(PIN_OLED_RST, OUTPUT);
   digitalWrite(PIN_OLED_RST, HIGH);
@@ -114,6 +138,11 @@ void pulseOledReset() {
   delay(50);
 }
 
+/**
+ * @brief Program SSD1306 registers for 128×64, charge pump, Heltec orientation.
+ *
+ * @see SSD1306 datasheet. Display is left OFF until @c 0xAF at the end.
+ */
 void sendOledInit() {
   // SSD1306 128x64. Display off while registers are programmed.
   sendCmd(0xAE);  // display OFF
@@ -143,6 +172,11 @@ void sendOledInit() {
   sendCmd(0xAF);  // display ON
 }
 
+/**
+ * @brief Power Vext, reset, probe I2C, then @ref sendOledInit.
+ * @param coldStart Extra settle delay and up to 5 probe retries.
+ * @retval true Panel accepted init; I2C left at 400 kHz.
+ */
 bool initOled(bool coldStart) {
   // Vext is active LOW. After RST or deep-sleep the rail may still be off
   // or the SSD1306 may NACK the first I2C probe — retry instead of giving up.
@@ -178,6 +212,10 @@ bool initOled(bool coldStart) {
   return false;
 }
 
+/**
+ * @brief Set or clear one pixel in @c g_buf (page-packed, column-major bytes).
+ * @param on true = lit (bit set).
+ */
 void setPixel(int x, int y, bool on) {
   if (x < 0 || x >= kWidth || y < 0 || y >= 64) {
     return;
@@ -191,6 +229,9 @@ void setPixel(int x, int y, bool on) {
   }
 }
 
+/**
+ * @brief Fill a rectangle in the frame buffer.
+ */
 void fillRect(int x, int y, int w, int h, bool on) {
   for (int yy = y; yy < y + h; ++yy) {
     for (int xx = x; xx < x + w; ++xx) {
@@ -199,6 +240,9 @@ void fillRect(int x, int y, int w, int h, bool on) {
   }
 }
 
+/**
+ * @brief Outline a rectangle (1 px border).
+ */
 void drawRect(int x, int y, int w, int h, bool on) {
   for (int i = 0; i < w; ++i) {
     setPixel(x + i, y, on);
@@ -210,6 +254,9 @@ void drawRect(int x, int y, int w, int h, bool on) {
   }
 }
 
+/**
+ * @brief Draw one 5×7 glyph; lowercase is folded to upper, else '?'.
+ */
 void drawChar(int x, int y, char c, bool on) {
   if (c >= 'a' && c <= 'z') {
     c = (char)(c - 32);
@@ -228,6 +275,9 @@ void drawChar(int x, int y, char c, bool on) {
   }
 }
 
+/**
+ * @brief Draw a C string with 1 px tracking (6 px advance).
+ */
 void drawText(int x, int y, const char* text, bool on) {
   while (*text) {
     drawChar(x, y, *text, on);
@@ -236,6 +286,9 @@ void drawText(int x, int y, const char* text, bool on) {
   }
 }
 
+/**
+ * @brief Push @c g_buf to GDDRAM (column 0–127, page 0–7) in 16-byte I2C chunks.
+ */
 void flush() {
   sendCmd(0x21);
   sendCmd(0);
@@ -252,8 +305,13 @@ void flush() {
   }
 }
 
+/** @brief Zero the frame buffer (does not flush). */
 void clear() { memset(g_buf, 0, sizeof(g_buf)); }
 
+/**
+ * @brief Piecewise-linear Li-ion percent from packed-cell voltage.
+ * @return 0–100.
+ */
 int voltageToPercent(float volts) {
   struct Pt {
     float v;
@@ -280,6 +338,9 @@ int voltageToPercent(float volts) {
   return 100;
 }
 
+/**
+ * @brief Average @c PIN_VBAT ADC readings (discard one dummy sample first).
+ */
 uint32_t sampleVbatRaw(int samples) {
   uint32_t sum = 0;
   analogRead(PIN_VBAT);
@@ -290,6 +351,10 @@ uint32_t sampleVbatRaw(int samples) {
   return sum / (uint32_t)samples;
 }
 
+/**
+ * @brief Battery volts via Heltec divider; probes ADC_CTRL polarity once.
+ * @return Pack voltage (divider @c VBAT_DIVIDER applied).
+ */
 float readBatteryVolts() {
   static bool inited = false;
   static uint8_t ctrlOn = LOW;
@@ -332,6 +397,9 @@ float readBatteryVolts() {
   return (mv / 1000.0f) * VBAT_DIVIDER;
 }
 
+/**
+ * @brief Smoothed battery percent, or -1 if the pack looks unplugged (< 2.5 V).
+ */
 int readBatteryPercent() {
   const float volts = readBatteryVolts();
   static float filtered = 0;
@@ -347,12 +415,19 @@ int readBatteryPercent() {
   return voltageToPercent(filtered);
 }
 
+/**
+ * @brief Title row: default SSID @c CueLight-XXXX at (0,0).
+ */
 void drawDeviceTitle() {
   char ssid[20];
   cueDefaultSsid(ssid, sizeof(ssid));
   drawText(0, 0, ssid, true);
 }
 
+/**
+ * @brief Percent text plus a battery glyph on the top-right.
+ * @param percent 0–100, or negative to draw `--%` with an empty body.
+ */
 void drawBattery(int percent) {
   const bool known = percent >= 0;
   if (percent < 0) {
@@ -391,6 +466,9 @@ void drawBattery(int percent) {
   }
 }
 
+/**
+ * @brief 9×7 three-node cluster icon (peer count).
+ */
 void drawNodeIcon(int x, int y) {
   fillRect(x + 3, y, 3, 3, true);
   setPixel(x + 2, y + 3, true);
@@ -399,7 +477,9 @@ void drawNodeIcon(int x, int y) {
   fillRect(x + 6, y + 4, 3, 3, true);
 }
 
-// 7x7 radio mast with two wave arcs. Same row as the node icon, one glyph wide.
+/**
+ * @brief 7×7 radio mast with two wave arcs (shown when LoRa is up).
+ */
 void drawLoraIcon(int x, int y) {
   fillRect(x, y, 1, 6, true);
   fillRect(x, y + 6, 3, 1, true);
@@ -413,6 +493,11 @@ void drawLoraIcon(int x, int y) {
   setPixel(x + 4, y + 4, true);
 }
 
+/**
+ * @brief Right-aligned count, optional LoRa icon, node icon on the IP row.
+ * @param peers WiFi mDNS + LoRa heard.
+ * @param lora Draw the radio glyph when the SX1262 is ready.
+ */
 void drawPeerCount(uint8_t peers, bool lora) {
   char text[4];
   snprintf(text, sizeof(text), "%u", peers);
@@ -431,6 +516,9 @@ void drawPeerCount(uint8_t peers, bool lora) {
   drawNodeIcon(iconX, y);
 }
 
+/**
+ * @brief Large cue tile: filled = green, outline = red.
+ */
 void drawCueBox(int x, int w, uint8_t cueNumber, uint8_t state) {
   const bool green = state == CUE_STATE_GREEN;
   const int h = (w >= (int)kWidth) ? 42 : 36;
@@ -457,6 +545,9 @@ void drawCueBox(int x, int w, uint8_t cueNumber, uint8_t state) {
 
 }  // namespace
 
+/**
+ * @brief Cold-start OLED; on success show the wipe-window splash.
+ */
 void cueDisplayBegin() {
   g_ready = initOled(true);
   if (!g_ready) {
@@ -467,6 +558,9 @@ void cueDisplayBegin() {
   cueDisplaySplash();
 }
 
+/**
+ * @brief Boot splash: SSID, battery, version, hold-PRG-to-wipe hint.
+ */
 void cueDisplaySplash() {
   if (!g_ready) {
     return;
@@ -481,6 +575,9 @@ void cueDisplaySplash() {
   flush();
 }
 
+/**
+ * @brief Full-width `-OFF-` banner before deep sleep.
+ */
 void cueDisplayShowOff() {
   if (!g_ready) {
     return;
@@ -493,6 +590,9 @@ void cueDisplayShowOff() {
   flush();
 }
 
+/**
+ * @brief Inverted confirmation after WiFi credentials were wiped.
+ */
 void cueDisplayShowWifiWiped() {
   if (!g_ready) {
     return;
@@ -504,6 +604,9 @@ void cueDisplayShowWifiWiped() {
   flush();
 }
 
+/**
+ * @brief Display off (@c 0xAE) and Vext HIGH so the panel is unpowered in sleep.
+ */
 void cueDisplayPowerDown() {
   if (g_ready) {
     sendCmd(0xAE);
@@ -513,6 +616,11 @@ void cueDisplayPowerDown() {
   digitalWrite(PIN_VEXT, HIGH);
 }
 
+/**
+ * @brief Live UI: title, battery, IP, peer count, cue box(es).
+ *
+ * If the panel was lost, retries @ref initOled up to 8 times.
+ */
 void cueDisplayRefresh() {
   if (!g_ready) {
     static uint8_t recoverTries = 0;
