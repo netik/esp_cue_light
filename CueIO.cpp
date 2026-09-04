@@ -123,10 +123,11 @@ void CueIO::updateStatusLed() {
  * distinguishes a tap from a power-off hold.
  */
 void CueIO::begin() {
+  const unsigned long now = millis();
   _cues[0] = {CUE_NUMBER_1, PIN_BTN_CUE1, PIN_CUE1_RED, PIN_CUE1_GREEN,
-              CUE_STATE_RED, 0, false, true, 0, 0};
+              CUE_STATE_RED, 0, false, true, 0, 0, now};
   _cues[1] = {CUE_NUMBER_2, PIN_BTN_CUE2, PIN_CUE2_RED, PIN_CUE2_GREEN,
-              CUE_STATE_RED, 0, false, true, 0, 0};
+              CUE_STATE_RED, 0, false, true, 0, 0, now};
 
   for (auto& cue : _cues) {
     pinMode(cue.redPin, OUTPUT);
@@ -187,6 +188,16 @@ uint32_t CueIO::getCueSeq(uint8_t cueNumber) const {
 }
 
 /**
+ * @brief Milliseconds since this cue last changed red/green.
+ * @param cueNumber 1-based cue index.
+ * @return Elapsed ms, or 0 if @p cueNumber is invalid.
+ */
+unsigned long CueIO::getCueStateAgeMs(uint8_t cueNumber) const {
+  const CueChannel* cue = cueByNumber(cueNumber);
+  return cue ? (millis() - cue->stateChangedMs) : 0;
+}
+
+/**
  * @brief Apply a peer/LoRa snapshot without incrementing seq or re-pushing.
  * @param cueNumber Cue to update.
  * @param state New red/green value.
@@ -198,6 +209,9 @@ void CueIO::applyRemoteCueState(uint8_t cueNumber, uint8_t state, uint32_t seq) 
     return;
   }
 
+  if (cue->state != state) {
+    cue->stateChangedMs = millis();
+  }
   cue->state = state;
   cue->seq = seq;
   applyOutputs(*cue);
@@ -221,6 +235,7 @@ void CueIO::setCueState(uint8_t cueNumber, uint8_t state, bool sync) {
     return;
   }
 
+  cue->stateChangedMs = millis();
   cue->state = state;
   if (sync) {
     ++cue->seq;

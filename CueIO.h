@@ -13,6 +13,7 @@ public:
 
   uint8_t getCueState(uint8_t cueNumber) const;
   uint32_t getCueSeq(uint8_t cueNumber) const;
+  unsigned long getCueStateAgeMs(uint8_t cueNumber) const;
   void setCueState(uint8_t cueNumber, uint8_t state, bool sync);
   void applyRemoteCueState(uint8_t cueNumber, uint8_t state, uint32_t seq);
 
@@ -32,6 +33,7 @@ private:
     bool armed;
     unsigned long releaseMs;
     unsigned long lastAcceptedMs;
+    unsigned long stateChangedMs;
   };
 
   CueChannel _cues[CUE_COUNT];

@@ -38,8 +38,8 @@ CLI_FLAGS   := --config-file $(CLI_CONFIG)
 
 BUILD_NODEMCU := $(ROOT)build/nodemcu
 BUILD_HELTEC  := $(ROOT)build/heltec
-NODEMCU_BIN   := $(BUILD_NODEMCU)/cue_light_webserver.ino.bin
-HELTEC_BIN    := $(BUILD_HELTEC)/cue_light_webserver.ino.bin
+NODEMCU_BIN   := $(BUILD_NODEMCU)/esp_cue_light.ino.bin
+HELTEC_BIN    := $(BUILD_HELTEC)/esp_cue_light.ino.bin
 
 DOXYGEN     ?= doxygen
 DOXYFILE    := $(ROOT)Doxyfile

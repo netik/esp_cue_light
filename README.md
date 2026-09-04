@@ -283,7 +283,7 @@ avahi-browse -rt _cuelight._tcp   # Linux
 ## Project layout
 
 ```
-cue_light_webserver.ino   Main sketch — WiFi, web server, API
+esp_cue_light.ino   Main sketch — WiFi, web server, API
 config.h                  Pins, board select, defaults, peer-sync timing, LoRa RF
 CueIO.*                   Buttons, lamp outputs, sequence numbers
 CueDisplay.*              Heltec OLED status (no-op on NodeMCU)

@@ -518,6 +518,22 @@ void drawPeerCount(uint8_t peers, bool lora) {
 }
 
 /**
+ * @brief Format elapsed seconds as @c m:ss or @c h:mm:ss.
+ */
+void formatDuration(unsigned long seconds, char* buf, size_t size) {
+  if (seconds >= 3600UL) {
+    const unsigned long h = seconds / 3600UL;
+    const unsigned long m = (seconds % 3600UL) / 60UL;
+    const unsigned long s = seconds % 60UL;
+    snprintf(buf, size, "%lu:%02lu:%02lu", h, m, s);
+  } else {
+    const unsigned long m = seconds / 60UL;
+    const unsigned long s = seconds % 60UL;
+    snprintf(buf, size, "%lu:%02lu", m, s);
+  }
+}
+
+/**
  * @brief Large cue tile: filled = green, outline = red.
  */
 void drawCueBox(int x, int w, uint8_t cueNumber, uint8_t state) {
@@ -542,6 +558,14 @@ void drawCueBox(int x, int w, uint8_t cueNumber, uint8_t state) {
   const int textY1 = y + (h >= 42 ? 24 : 18);
   drawText(x + (w - labelW) / 2, textY0, label, ink);
   drawText(x + (w - colorW) / 2, textY1, color, ink);
+
+  char timeBuf[12];
+  formatDuration(cueIO.getCueStateAgeMs(cueNumber) / 1000UL, timeBuf,
+                 sizeof(timeBuf));
+  const int timeW = (int)strlen(timeBuf) * 6;
+  const int padRight = 5;
+  const int padBottom = 5;
+  drawText(x + w - timeW - padRight, y + h - 7 - padBottom, timeBuf, ink);
 }
 
 }  // namespace

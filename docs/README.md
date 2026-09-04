@@ -74,7 +74,7 @@ Boards sync only when **System ID** and **Cue Group** match (configured at `/set
 | `CueDisplay.cpp` / `CueDisplay.h` | Heltec OLED status; no-op on NodeMCU |
 | `PlatformCompat.h` | ESP8266 / ESP32 WiFi, mDNS, HTTP includes |
 | `config.h` | Pins (board-selected), defaults, `PEER_SYNC_*` and `LORA_*` constants |
-| `cue_light_webserver.ino` | WiFi, web server, `GET`/`POST /api/cues` handlers, Enable LoRa / Enable WiFi options |
+| `esp_cue_light.ino` | WiFi, web server, `GET`/`POST /api/cues` handlers, Enable LoRa / Enable WiFi options |
 
 ---
 
